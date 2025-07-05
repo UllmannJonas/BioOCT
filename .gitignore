@@ -2,7 +2,7 @@
 # Edit at https://www.toptal.com/developers/gitignore?templates=python
 
 # VSCode settings
-.vscode
+.vscode/
 
 # ML: logs and model-checkpoints
 *.txt
