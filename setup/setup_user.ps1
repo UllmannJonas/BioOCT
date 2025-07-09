@@ -7,16 +7,21 @@ Set-Location $targetDir
 
 # venv erstellen
 uv venv
-Write-Host "`n Virtual environment was created.`n"
-
+Write-Host "`nVirtual environment was created."
 # Aktivieren
-Write-Host "`n Opening new terminal inside virtual environment ..."
+Write-Host "Opening new terminal inside virtual environment ..."
 
-Write-Host "execute these commands in the newly opened PowerShell:"
-Write-Host "First: pip install uv" -ForegroundColor Yellow
-Write-Host "Second: uv add oct-analysis" -ForegroundColor Cyan
+Write-Host "`nexecute this command in the newly opened PowerShell:"
+Write-Host "uv add oct-analysis" -ForegroundColor Cyan
 
-Write-Host "`n After that: Done! Ready to work on the project now.`n"
+Write-Host "`nAfter that: Done! Ready to use the napari plugin now."
+Write-Host "To start napari, simply type " -NoNewline
+Write-Host "napari" -ForegroundColor Yellow -NoNewline
+Write-Host " while in the activated virtual environment."
+Write-Host "Activate the environemt with " -NoNewline
+Write-Host ".\.venv\Scripts\activate.ps1" -ForegroundColor Red -NoNewline
+Write-Host " while in the napari-folder in Powershell."
+
 Write-Host "`n You can close this terminal now."
 
-Start-Process powershell -ArgumentList "-NoExit", "-Command", ". .\.venv\Scripts\activate"
+Start-Process pwsh -ArgumentList "-NoExit", "-Command", ". .\.venv\Scripts\activate.ps1"

@@ -16,17 +16,16 @@ Set-Location $targetDir
 
 # venv erstellen
 uv venv
-Write-Host "`n Virtual environment was created.`n"
-
+Write-Host "`nVirtual environment was created."
 # venv aktivieren
-Write-Host "`n Opening new terminal inside virtual environment ..."
+Write-Host "Opening new terminal inside virtual environment ...`n"
 
-Write-Host "execute these commands in the newly opened PowerShell:"
-Write-Host "First: pip install uv" -ForegroundColor Yellow
-Write-Host "Second: .\.venv\Scripts\uv.exe sync" -ForegroundColor Cyan
+Write-Host "Execute this command in the newly opened PowerShell:"
+Write-Host "uv sync" -ForegroundColor Cyan
 
-Write-Host "`n After that: Done! Ready to work on the project now.`n"
-Write-Host "`n You can close this terminal now."
-Write-Host "Don't forget to create a branch when making changes ;)."
-Write-Host "Look for guidance in oct-analysis/docs/collab_workflow.md"
-Start-Process powershell -ArgumentList "-NoExit", "-Command", ". .\.venv\Scripts\activate"
+Write-Host "`nAfter that: Done! Ready to work on the project now."
+Write-Host "Don't forget to create a branch when making changes ;)." -ForegroundColor Red
+Write-Host "Look for guidance in oct-analysis/docs/collab_workflow.md" -ForegroundColor Red
+
+Write-Host "`nYou can close this terminal now."
+Start-Process pwsh -ArgumentList "-NoExit", "-Command", ". .\.venv\Scripts\activate.ps1"
