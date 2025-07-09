@@ -2,38 +2,53 @@
 
 oct_analysis is a Python library for the processing of image data for optical methods (foremost optical coherence tomography (OCT)).
 
-## Quick Setup Guide (Currently only for Windows)
+# Quick Setup Guide (Currently only for Windows)
 
-# for Users (Windows/Powershell)
+## For Users (Windows/Powershell)
 
-First, you need to install uv (a modern python package manager)
-1) Open Windows Powershell (PS)
-2) Paste this into PS and hit enter:
+1) Install uv (a modern python package manager)
+
+   1.1) Open Windows Powershell (PS)
+
+   1.2) Paste this into PS and hit enter:
+
 ```PS
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/astral-sh/uv/releases/download/0.7.19/uv-installer.ps1 | iex
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/astral-sh/uv/releases/download/0.7.19/uv-installer.ps1 | iex"
 ```
-3) add uv to you PATH as recommended by the promt after installing uv
-4) execute this line in PS:
+
+   1.3) add uv to you PATH as recommended by the promt after installing uv
+
+   or
+
+   1.3) if no promt appears, restart the PS -> uv is now ready
+
+2) execute this line in PS and follow the instructions given in the PS:
 ```PS
-https://raw.githubusercontent.com/AndreasNetsch/oct_analysis/main/setup/setup_user.ps1
+irm https://raw.githubusercontent.com/AndreasNetsch/oct_analysis/main/setup/setup_user.ps1 | iex
 ```
 5) Done!
 
-# for Contributors/Developers (Windows/Powershell)
-First, you need to install uv (a modern python package manager)
-1) Open Windows Powershell (PS)
-2) Paste this into PS and hit enter:
+## for Contributors/Developers (Windows/Powershell)
+1) Install uv (a modern python package manager)
+
+   1.1) Open Windows Powershell (PS)
+
+   1.2) Paste this into PS and hit enter:
+
 ```PS
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/astral-sh/uv/releases/download/0.7.19/uv-installer.ps1 | iex
 ```
-3) add uv to you PATH as recommended by the promt after installing uv
 
-Second, you need to install git -> https://git-scm.com/downloads
+   1.3) add uv to you PATH as recommended by the promt after installing uv
 
-Then continue:
-4) execute this line in PS:
+   or
+
+   1.3) if no promt appears, restart the PS -> uv is now ready
+   
+2) Install git -> https://git-scm.com/downloads
+3) execute this line in PS and follow the instructions given in the PS:
 ```PS
-https://raw.githubusercontent.com/AndreasNetsch/oct_analysis/main/setup/setup_dev.ps1
+irm https://raw.githubusercontent.com/AndreasNetsch/oct_analysis/main/setup/setup_dev.ps1 | iex
 ```
 5) Done!
 

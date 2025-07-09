@@ -10,21 +10,27 @@ if (-not (Test-Path $targetDir)) {
 } else {
     Write-Host "📁 Ordner '$targetDir' existiert bereits. Skipping clone."
 }
+
+# In neuen Ordner navigieren
 Set-Location $targetDir
 
 # venv erstellen
 uv venv
-Write-Host "`n Virtual environment was created.`n"
+Write-Host "_____________________________________________________________________"
+Write-Host "`nVirtual environment was created."
 
-# Sync environment
-Write-Host " Syncing dev environment via uv.lock..."
-.\.venv\Scripts\uv.exe sync
+# Anleitung
+Write-Host "`nExecute these steps:"
+Write-Host "1) Activate the environemt with " -NoNewline
+Write-Host ".\.venv\Scripts\activate.ps1" -ForegroundColor Red -NoNewline
+Write-Host " while in the napari-folder in Powershell.`n"
 
-Write-Host "`n Done! Ready to work on the project now.`n"
+Write-Host "2) Sync the repositories virtual environment via " -NoNewline
+Write-Host "uv sync`n" -ForegroundColor Cyan
 
-# venv aktivieren
-Write-Host "`n Opening new terminal inside virtual environment ..."
-Start-Process powershell -ArgumentList "-NoExit", "-Command", ". .\.venv\Scripts\activate"
-Write-Host "`n You can close this terminal now."
-Write-Host "Don't forget to create a branch when making changes ;)."
-Write-Host "Look for guidance in oct-analysis/docs/collab_workflow.md"
+Write-Host "`nAfter that: Done! Ready to work on the project now."
+Write-Host "Don't forget to create a branch when making changes ;)." -ForegroundColor Red
+Write-Host "Look for guidance in oct-analysis/docs/collab_workflow.md" -ForegroundColor Red
+
+Write-Host "`nYou can close this terminal now."
+Write-Host "_____________________________________________________________________"
