@@ -124,6 +124,25 @@ def zero_out_substratum(viewer: napari.Viewer):
         lay.visible = False
     layer.visible = True # type: ignore
 
+@magicgui(call_button="Increase contrast")
+def increase_contrast(viewer: napari.Viewer):
+    if 'no_substratum' not in viewer.layers:
+        show_info("Substratum must be zeroed out first.")
+        return
+
+    stack = viewer.layers['no_substratum'].data
+    
+    contrast_enhanced = ip.increase_contrast(stack)
+
+    if 'contrast_enhanced' in viewer.layers:
+        viewer.layers['contrast_enhanced'].data = contrast_enhanced
+    else:
+        viewer.add_image(contrast_enhanced, name='contrast_enhanced', colormap='magma', gamma=1.0, visible=True)
+
+    for lay in viewer.layers:
+        lay.visible = False
+    viewer.layers['contrast_enhanced'].visible = True
+
 @magicgui(
     threshold={'widget_type': 'FloatSpinBox', 'min': 0.0, 'max': 1.0, 'step': 0.001},
     auto_call=True

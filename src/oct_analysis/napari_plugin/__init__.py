@@ -14,6 +14,7 @@ def main():
         widgets.zero_out_window,
         widgets.locate_substratum,
         widgets.zero_out_substratum,
+        widgets.increase_contrast,
         widgets.binarize,
         widgets.remove_outliers,
         widgets.save
