@@ -57,6 +57,7 @@ indent-style = 'tab'
 line-ending = 'auto'
 
 [tool.uv]
+editable-packages = ["."]
 dev-dependencies = ["oct_analysis[dev]"]
 
 [build-system]
