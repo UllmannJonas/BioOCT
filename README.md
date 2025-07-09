@@ -10,12 +10,12 @@ First, you need to install uv (a modern python package manager)
 1) Open Windows Powershell (PS)
 2) Paste this into PS and hit enter:
 ```PS
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/astral-sh/uv/releases/download/0.7.19/uv-installer.ps1 | iex
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/astral-sh/uv/releases/download/0.7.19/uv-installer.ps1 | iex"
 ```
 3) add uv to you PATH as recommended by the promt after installing uv
 4) execute this line in PS:
 ```PS
-https://raw.githubusercontent.com/AndreasNetsch/oct_analysis/main/setup/setup_user.ps1
+irm https://raw.githubusercontent.com/AndreasNetsch/oct_analysis/main/setup/setup_user.ps1 | iex
 ```
 5) Done!
 
@@ -33,7 +33,7 @@ Second, you need to install git -> https://git-scm.com/downloads
 Then continue:
 4) execute this line in PS:
 ```PS
-https://raw.githubusercontent.com/AndreasNetsch/oct_analysis/main/setup/setup_dev.ps1
+irm https://raw.githubusercontent.com/AndreasNetsch/oct_analysis/main/setup/setup_dev.ps1 | iex
 ```
 5) Done!
 
