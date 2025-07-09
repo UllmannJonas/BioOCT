@@ -24,4 +24,4 @@ Write-Host " while in the napari-folder in Powershell."
 
 Write-Host "`n You can close this terminal now."
 
-Start-Process pwsh -ArgumentList "-NoExit", "-Command", ". .\.venv\Scripts\activate.ps1"
+Start-Process Powershell -ArgumentList "-NoExit", "-Command", ". .\.venv\Scripts\activate.ps1"

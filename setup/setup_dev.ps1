@@ -28,4 +28,4 @@ Write-Host "Don't forget to create a branch when making changes ;)." -Foreground
 Write-Host "Look for guidance in oct-analysis/docs/collab_workflow.md" -ForegroundColor Red
 
 Write-Host "`nYou can close this terminal now."
-Start-Process pwsh -ArgumentList "-NoExit", "-Command", ". .\.venv\Scripts\activate.ps1"
+Start-Process Powershell -ArgumentList "-NoExit", "-Command", ". .\.venv\Scripts\activate.ps1"
