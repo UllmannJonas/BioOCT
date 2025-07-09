@@ -1143,6 +1143,17 @@ def zero_out_substratum(stack: np.ndarray, substratum_coords: np.ndarray) -> np.
     copy[yy >= substratum_coords[:, np.newaxis, :]] = 0  # Set pixels below the substratum to zero
     return copy
 
+def increase_contrast(stack: np.ndarray) -> np.ndarray:
+    min_val = np.percentile(stack, 1)
+    max_val = np.percentile(stack, 99)
+    
+    if max_val == min_val:
+        show_info("Image has no contrast to enhance.")
+        return
+
+    contrast_enhanced = (image - min_val)*(1 / (max_val - min_val))
+    return contrast_enhanced
+
 def get_threshold(stack: np.ndarray):
     """
     Create a binary mask from an image stack, ignoring zero pixels.
