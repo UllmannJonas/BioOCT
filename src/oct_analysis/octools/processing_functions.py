@@ -3,6 +3,7 @@ Image processing functions for oct_analysis
 """
 
 import cv2
+from scipy.__config__ import show
 import tifffile as tiff
 import os
 import csv
@@ -16,6 +17,8 @@ import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
 import nibabel as nib
+from napari.utils.notifications import show_info
+import matplotlib.pyplot as plt
 
 def read_tiff(file_path: str) -> tuple[np.ndarray, str, dict]:
     """
@@ -1143,16 +1146,32 @@ def zero_out_substratum(stack: np.ndarray, substratum_coords: np.ndarray) -> np.
     copy[yy >= substratum_coords[:, np.newaxis, :]] = 0  # Set pixels below the substratum to zero
     return copy
 
-def increase_contrast(stack: np.ndarray) -> np.ndarray:
-    min_val = np.percentile(stack, 1)
-    max_val = np.percentile(stack, 99)
-    
+def increase_contrast(stack: np.ndarray, percentile: float) -> np.ndarray:
+    nonzero_values = stack[stack > 0]  # Extract non-zero values
+    min_val = np.percentile(nonzero_values, percentile)  # Find the 1st percentile without zeros
+    max_val = np.percentile(stack, 100 - percentile) 
     if max_val == min_val:
         show_info("Image has no contrast to enhance.")
-        return
+        return stack
 
-    contrast_enhanced = (image - min_val)*(1 / (max_val - min_val))
+    contrast_enhanced = np.clip(((stack - min_val) / (max_val - min_val)), 0, 1)
     return contrast_enhanced
+
+def plot_histograms(original: np.ndarray, new: np.ndarray, percentile: float):
+    plt.figure(figsize=(12, 6))
+
+    plt.subplot(1, 2, 1)
+    plt.hist(original.ravel(), bins=256, range=(0, 1), color='blue', alpha=0.7, log = True)
+    plt.title('Original image histogram')
+    plt.xlabel('Pixel intensity')
+    plt.ylabel('Pixel amount')
+
+    plt.subplot(1, 2, 2)
+    plt.hist(new.ravel(), bins=256, range=(0, 1), color='green', alpha=0.7, log = True)
+    plt.title(f'Contrast enhanced image histogram with percentile {percentile}') 
+    plt.xlabel('Pixel intensity')
+    plt.ylabel('Pixel amount')
+    plt.show()
 
 def get_threshold(stack: np.ndarray):
     """
