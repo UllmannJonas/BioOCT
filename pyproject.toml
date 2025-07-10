@@ -58,6 +58,7 @@ line-ending = 'auto'
 
 [tool.uv]
 dev-dependencies = ["oct_analysis[dev]"]
+editable-packages = ["."]
 
 [build-system]
 requires = ["hatchling"]
