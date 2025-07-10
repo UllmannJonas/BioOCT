@@ -9,7 +9,7 @@ from unittest import mock
 import numpy as np
 import pytest
 
-from ebi_oct.octools.processing_functions import (
+from oct_analysis.octools.processing_functions import (
     binary_mask,
     calculate_porosity,
     calculate_roughness,

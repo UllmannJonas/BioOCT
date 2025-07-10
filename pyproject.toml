@@ -1,5 +1,5 @@
 [project]
-name = "ebi_oct"
+name = "oct_analysis"
 version = "1.0.1"
 description = "A package for analyzing optical coherence tomography (OCT) images for biofilm."
 authors = [
@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [project.entry-points."napari.manifest"]
-"OCTool" = "ebi_oct.napari_plugin:napari.yaml"
+"OCTool" = "oct_analysis.napari_plugin:napari.yaml"
 
 [project.optional-dependencies]
 dev = [
@@ -57,6 +57,7 @@ indent-style = 'tab'
 line-ending = 'auto'
 
 [tool.uv]
+editable-packages = ["."]
 dev-dependencies = ["oct_analysis[dev]"]
 
 [build-system]
@@ -64,12 +65,12 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ebi_oct"]
-include = ["src/ebi_oct/napari_plugin/napari.yaml"]
+packages = ["src/oct_analysis"]
+include = ["src/oct_analysis/napari_plugin/napari.yaml"]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-packages = ["ebi_oct", "ebi_oct.napari_plugin"]
+packages = ["oct_analysis", "oct_analysis.napari_plugin"]
 
 [tool.setuptools.package-data]
-"ebi_oct.napari_plugin" = ["napari.yaml"]
+"oct_analysis.napari_plugin" = ["napari.yaml"]

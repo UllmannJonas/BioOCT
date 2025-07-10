@@ -2,11 +2,86 @@
 
 oct_analysis is a Python library for the processing of image data for optical methods (foremost optical coherence tomography (OCT)).
 
-## Installation
+# Quick Setup Guide (Currently only for Windows)
 
-```bash
-pip install oct_analysis
+## For Users (Windows/Powershell)
+
+1) Install uv (a modern python package manager)
+
+   1.1) Open Windows Powershell (PS)
+
+   1.2) Paste this into PS and hit enter:
+
+```PS
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/astral-sh/uv/releases/download/0.7.19/uv-installer.ps1 | iex"
 ```
+
+   1.3) add uv to you PATH as recommended by the promt after installing uv
+
+   or
+
+   1.3) if no promt appears, restart the PS -> uv is now ready
+
+2) execute this line in PS and follow the instructions given in the PS:
+```PS
+irm https://raw.githubusercontent.com/AndreasNetsch/oct_analysis/main/setup/setup_user.ps1 | iex
+```
+5) Done!
+
+## for Contributors/Developers (Windows/Powershell)
+1) Install uv (a modern python package manager)
+
+   1.1) Open Windows Powershell (PS)
+
+   1.2) Paste this into PS and hit enter:
+
+```PS
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/astral-sh/uv/releases/download/0.7.19/uv-installer.ps1 | iex
+```
+
+   1.3) add uv to you PATH as recommended by the promt after installing uv
+
+   or
+
+   1.3) if no promt appears, restart the PS -> uv is now ready
+   
+2) Install git -> https://git-scm.com/downloads
+3) execute this line in PS and follow the instructions given in the PS:
+```PS
+irm https://raw.githubusercontent.com/AndreasNetsch/oct_analysis/main/setup/setup_dev.ps1 | iex
+```
+5) Done!
+
+
+# OCT Labeling Workflow
+
+### 1. Load & Normalize
+- Click *Load OCT* to open a `.oct` file  
+- This creates a hidden raw layer and a normalized image layer
+
+### 2. Preprocessing
+- Apply *Median Filter* to smooth noise but preserve edges  
+- Apply *ROI 2D Filter* to enhance detection of horizontal edges
+
+### 3. Window/Substratum Detection
+- Use *Locate Window* to find window coordinates  
+- Click *Zero Out Window* to mask it  
+- Use *Locate Substratum* to detect the substratum  
+- Click *Zero Out Substratum* to mask it  
+  → Internally, the coordinates are located using the `roi_filtered` layer  
+  → The masking is applied to the `median_filtered` layer (important for binarization)
+
+### 4. Postprocessing
+- Use *Increase Contrast* to improve binarization accuracy  
+- Adjust *Threshold* to binarize — changing the value auto-calls the function  
+  → Threshold is applied to the `no_substratum` layer  
+  → Zero-values are ignored  
+- Optionally use *Remove Outliers* to clean up background noise (auto-call)
+
+### 5. Save
+- Use *Save stack+mask_stack* to export normalized & binary layers as `.nii.gz`  
+- Use *Save Settings* to export a `.json` of all current parameters
+
 
 ## Features
 
@@ -35,52 +110,6 @@ from oct_analysis import (
 )
 ```
 
-## Collaboration and Development
-
-### Setup
-
-1. Clone the repository:
-
-```bash
-git clone https://github.com/AndreasNetsch/oct_analysis.git
-cd oct_analysis
-```
-
-2. Create a virtual environment and install development dependencies:
-
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -e ".[dev]"
-```
-
-### Testing
-
-Run tests with pytest:
-
-```bash
-pytest
-```
-
-### Code Formatting and Linting
-
-This project uses pre-commit hooks to ensure code quality. After installing the development dependencies, set up the pre-commit hooks:
-
-```bash
-pre-commit install
-```
-
-This will automatically format your code with Black and check it with Flake8 before each commit. You can also run the hooks manually:
-
-```bash
-pre-commit run --all-files
-```
-
-### Building the package
-
-```bash
-python -m build
-```
 
 ### Documentation
 

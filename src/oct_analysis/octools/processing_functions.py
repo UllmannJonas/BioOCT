@@ -16,6 +16,7 @@ import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
 import nibabel as nib
+from napari.utils.notifications import show_info
 
 def read_tiff(file_path: str) -> tuple[np.ndarray, str, dict]:
     """
@@ -1082,7 +1083,6 @@ def load_oct(filepath: Path):
     return data, meta
 
 def save(stack: np.ndarray, stack_metadata: dict, binary_stack: np.ndarray, output_dir: Path) -> None:
-    print(stack_metadata)
     spacing = stack_metadata['spacing_mm']
     if any(v == 0 for v in spacing.values()):
         affine = np.diag([0.01, 0.01, 0.01, 1.0])
@@ -1144,6 +1144,33 @@ def zero_out_substratum(stack: np.ndarray, substratum_coords: np.ndarray) -> np.
     copy[yy >= substratum_coords[:, np.newaxis, :]] = 0  # Set pixels below the substratum to zero
     return copy
 
+def increase_contrast(stack: np.ndarray, percentile: float) -> np.ndarray:
+    nonzero_values = stack[stack > 0]  # Extract non-zero values
+    min_val = np.percentile(nonzero_values, percentile)  # Find the 1st percentile without zeros
+    max_val = np.percentile(stack, 100 - percentile) 
+    if max_val == min_val:
+        show_info("Image has no contrast to enhance.")
+        return stack
+
+    contrast_enhanced = np.clip(((stack - min_val) / (max_val - min_val)), 0, 1)
+    return contrast_enhanced
+
+def plot_histograms(original: np.ndarray, new: np.ndarray, percentile: float):
+    plt.figure(figsize=(12, 6))
+
+    plt.subplot(1, 2, 1)
+    plt.hist(original.ravel(), bins=256, range=(0, 1), color='blue', alpha=0.7, log = True)
+    plt.title('Original image histogram')
+    plt.xlabel('Pixel intensity')
+    plt.ylabel('Pixel amount')
+
+    plt.subplot(1, 2, 2)
+    plt.hist(new.ravel(), bins=256, range=(0, 1), color='green', alpha=0.7, log = True)
+    plt.title(f'Contrast enhanced image histogram with percentile {percentile}') 
+    plt.xlabel('Pixel intensity')
+    plt.ylabel('Pixel amount')
+    plt.show()
+
 def get_threshold(stack: np.ndarray):
     """
     Create a binary mask from an image stack, ignoring zero pixels.
@@ -1159,8 +1186,7 @@ def rm_outliers(stack: np.ndarray, size: int) -> np.ndarray:
     bool_stack = stack.astype(bool)
 
     stack_transformed = morphology.remove_small_objects(bool_stack, size, connectivity=1)
-    stack_transformed = morphology.remove_small_holes(stack_transformed, size, connectivity=1)
-    
+
     stack = stack_transformed.astype(np.uint8)
-    
+
     return stack

@@ -1,9 +1,0 @@
-name: ebi_oct
-contributions:
-  commands:
-    - id: ebi_oct.widgets
-      python_name: ebi_oct.napari_plugin:main
-      title: OCT Processing Widgets
-  widgets:
-    - command: ebi_oct.widgets # Note: same as command.id above
-      display_name: OCTool

@@ -1,0 +1,9 @@
+name: oct_analysis
+contributions:
+  commands:
+    - id: oct_analysis.widgets
+      python_name: oct_analysis.napari_plugin:main
+      title: OCT Processing Widgets
+  widgets:
+    - command: oct_analysis.widgets # Note: same as command.id above
+      display_name: OCTool
