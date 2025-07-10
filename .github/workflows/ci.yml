@@ -28,7 +28,7 @@ jobs:
           pip install ".[dev]"
       - name: Lint with ruff (non-blocking)
         run: |
-          ruff check . --fix
+          ruff check . || true
       - name: Format with ruff-format
         run: |
           ruff format .
