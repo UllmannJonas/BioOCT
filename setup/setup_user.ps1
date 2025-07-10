@@ -1,24 +1,28 @@
 # Optional: Pfad zum Zielordner
 $targetDir = "$HOME\napari"
-$packageName = "oct-analysis"
 
-# Ordner erstellen
+# Ordner erstellen und hinein-navigieren
 New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
 Set-Location $targetDir
 
 # venv erstellen
 uv venv
+Write-Host "_____________________________________________________________________"
+Write-Host "`nVirtual environment was created."
 
-# Aktivieren (manuell durch User, Anleitung folgt)
-Write-Host "`n Virtual environment was created.`n"
+# Anleitung
+Write-Host "`nExecute these steps:"
+Write-Host "1) Activate the environemt with " -NoNewline
+Write-Host ".\.venv\Scripts\activate.ps1" -ForegroundColor Red -NoNewline
+Write-Host " while in the napari-folder in Powershell.`n"
 
-# Paket installieren
-Write-Host " Installing package: '$packageName' ..."
-.\.venv\Scripts\uv.exe pip install $packageName
+Write-Host "2) install the package via uv: " -NoNewline
+Write-Host "uv pip install oct-analysis`n" -ForegroundColor Cyan
 
-Write-Host "`n Done!`n"
+Write-Host "After that: Done! Ready to use the napari plugin now."
+Write-Host "To start napari, simply type " -NoNewline
+Write-Host "napari" -ForegroundColor Yellow -NoNewline
+Write-Host " while in the activated virtual environment."
 
-# venv aktivieren
-Write-Host "`n Opening new terminal inside virtual environment ..."
-Start-Process powershell -ArgumentList "-NoExit", "-Command", ". .\.venv\Scripts\activate"
 Write-Host "`n You can close this terminal now."
+Write-Host "_____________________________________________________________________"
