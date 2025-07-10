@@ -9,6 +9,40 @@ from oct_analysis.octools import processing_functions as ip
 
 oct_metadata_global = {} # Global variable to store metadata
 
+@magicgui(call_button="Show Instructions")
+def show_instructions():
+    instructions = (
+        "<b>OCT Labeling Workflow:</b><br><br>"
+
+        "<b>1. Load & Normalize</b><br>"
+        "• Click <i>Load OCT</i> to open a .oct file<br>"
+        "• This creates a hidden raw layer and a normalized image layer<br><br>"
+
+        "<b>2. Preprocessing</b><br>"
+        "• Apply <i>Median Filter</i> to smoothen noise but preserve edges<br>"
+        "• Apply <i>ROI 2D Filter</i> to enhance detection of horizontal edges<br><br>"
+
+        "<b>3. Window/Substratum Detection</b><br>"
+        "• Use <i>Locate Window</i> to find window coordinates<br>"
+        "• Click <i>Zero Out Window</i> to mask it<br>"
+        "• Use <i>Locate Substratum</i> to detect the substratum<br>"
+        "• Click <i>Zero Out Substratum</i> to mask it<br><br>"
+        "-> Internally, the coordinates are located using the 'roi_filtered' layer"
+        "-> The masking is then applied to the median_filtered layer (important for binarization later)"
+
+        "<b>4. Postprocessing</b><br>"
+        "• Use <i>Increase Contrast</i> to improve binarization accuracy<br>"
+        "• Adjust <i>Threshold</i> to binarize. Changing the value auto-calls the binarize-function<br>"
+        "-> The threshold is calculated on the masked median_filtered layer (no_substratum). Zero-values are ignored."
+        "• Optionally use <i>Remove Outliers</i> to clean up biofilm signal in the background noise (also auto-called)<br><br>"
+
+        "<b>5. Save</b><br>"
+        "• Use <i>Save stack+mask_stack</i> to export normalized & binary layers as .nii.gz files"
+        "• Use <i>Save Settings</i> to export a JSON file of the current settings of all user-set values"
+    )
+
+    show_info(instructions)
+
 @magicgui(call_button="Load OCT")
 def load_oct(viewer: napari.Viewer):
     filepath, _ = QFileDialog.getOpenFileName(None, 'Select OCT file', '', 'OCT files (*.oct)') # type: ignore

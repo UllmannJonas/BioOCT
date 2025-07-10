@@ -3,7 +3,6 @@ Image processing functions for oct_analysis
 """
 
 import cv2
-from scipy.__config__ import show
 import tifffile as tiff
 import os
 import csv
@@ -18,7 +17,6 @@ import zipfile
 import xml.etree.ElementTree as ET
 import nibabel as nib
 from napari.utils.notifications import show_info
-import matplotlib.pyplot as plt
 
 def read_tiff(file_path: str) -> tuple[np.ndarray, str, dict]:
     """
