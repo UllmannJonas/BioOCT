@@ -7,7 +7,10 @@ def main():
     from pathlib import Path
 
     widget_list = [
-        widgets.show_instructions,
+        widgets.show_instructionsA,
+        widgets.show_instructionsB,
+        widgets.show_instructionsC,
+        widgets.show_instructionsD,
         widgets.load_oct,
         widgets.median_filter,
         widgets.roi_filter_2D,

@@ -53,6 +53,36 @@ irm https://raw.githubusercontent.com/AndreasNetsch/oct_analysis/main/setup/setu
 5) Done!
 
 
+# OCT Labeling Workflow
+
+### 1. Load & Normalize
+- Click *Load OCT* to open a `.oct` file  
+- This creates a hidden raw layer and a normalized image layer
+
+### 2. Preprocessing
+- Apply *Median Filter* to smooth noise but preserve edges  
+- Apply *ROI 2D Filter* to enhance detection of horizontal edges
+
+### 3. Window/Substratum Detection
+- Use *Locate Window* to find window coordinates  
+- Click *Zero Out Window* to mask it  
+- Use *Locate Substratum* to detect the substratum  
+- Click *Zero Out Substratum* to mask it  
+  → Internally, the coordinates are located using the `roi_filtered` layer  
+  → The masking is applied to the `median_filtered` layer (important for binarization)
+
+### 4. Postprocessing
+- Use *Increase Contrast* to improve binarization accuracy  
+- Adjust *Threshold* to binarize — changing the value auto-calls the function  
+  → Threshold is applied to the `no_substratum` layer  
+  → Zero-values are ignored  
+- Optionally use *Remove Outliers* to clean up background noise (auto-call)
+
+### 5. Save
+- Use *Save stack+mask_stack* to export normalized & binary layers as `.nii.gz`  
+- Use *Save Settings* to export a `.json` of all current parameters
+
+
 ## Features
 
 The oct_analysis python package includes various functions for:
