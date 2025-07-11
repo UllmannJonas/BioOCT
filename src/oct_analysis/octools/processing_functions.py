@@ -2,14 +2,11 @@
 Image processing functions for oct_analysis
 """
 
-import cv2
-from scipy.__config__ import show
 import tifffile as tiff
 import os
 import csv
 import numpy as np
 import matplotlib.pyplot as plt
-import customtkinter as ctk
 from skimage import exposure, filters, morphology
 import scipy.ndimage
 from pathlib import Path
@@ -195,23 +192,25 @@ def save_tiff(img, file_path, filename, metadata=None):
     except Exception as e:
         raise ValueError(f"Error saving TIFF file: {str(e)}") from e
 
+# >>>not needed with napari<<<
 def select_tiff_folder():
-    """
-    Opens a window to select a folder containing TIFF files.
+    pass
+    #     """
+    #     Opens a window to select a folder containing TIFF files.
 
-    Returns
-    -------
-    str
-        The path to the selected folder.
-    """
-    root = ctk.CTk()
-    root.withdraw()  # Hide the root window
-    folder_path = ctk.filedialog.askdirectory(title="Select Folder")
-    if folder_path:
-        print(f"Selected Folder: {folder_path}")
-    else:
-        print("No folder selected.")
-    return folder_path
+    #     Returns
+    #     -------
+    #     str
+    #         The path to the selected folder.
+    #     """
+    #     root = ctk.CTk()
+    #     root.withdraw()  # Hide the root window
+    #     folder_path = ctk.filedialog.askdirectory(title="Select Folder")
+    #     if folder_path:
+    #         print(f"Selected Folder: {folder_path}")
+    #     else:
+    #         print("No folder selected.")
+    #     return folder_path
 
 def save_results_to_csv(output_folder, headers, data):
     """
@@ -253,28 +252,30 @@ def save_results_to_csv(output_folder, headers, data):
         writer.writerow(data)
 
 # Pre-Processing functions
+# >>>not needed for speed, rather keep orginal float32 data<<<
 def convert_to_8bit(img):
-    """
-    Converts an image to 8-bit format.
+    pass
+    # """
+    # Converts an image to 8-bit format.
 
-    Parameters
-    ----------
-    img : numpy.ndarray
-        The image as a numpy array.
+    # Parameters
+    # ----------
+    # img : numpy.ndarray
+    #     The image as a numpy array.
 
-    Returns
-    -------
-    numpy.ndarray
-        The image as a numpy array.
-    """
-    if np.issubdtype(img.dtype, np.floating):
-        img = (img - img.min()) / (img.max() - img.min())  # Normalize to [0, 1]
-        img = (img * 255).astype(np.uint8)  # Scale to [0, 255]
-    else:
-        # If the image is integer-based (like uint32), just scale it to [0, 255]
-        img = (img.astype(np.float32) - img.min()) / (img.max() - img.min())  # Normalize to [0, 1]
-        img = (img * 255).astype(np.uint8)  # Scale to [0, 255]
-    return img
+    # Returns
+    # -------
+    # numpy.ndarray
+    #     The image as a numpy array.
+    # """
+    # if np.issubdtype(img.dtype, np.floating):
+    #     img = (img - img.min()) / (img.max() - img.min())  # Normalize to [0, 1]
+    #     img = (img * 255).astype(np.uint8)  # Scale to [0, 255]
+    # else:
+    #     # If the image is integer-based (like uint32), just scale it to [0, 255]
+    #     img = (img.astype(np.float32) - img.min()) / (img.max() - img.min())  # Normalize to [0, 1]
+    #     img = (img * 255).astype(np.uint8)  # Scale to [0, 255]
+    # return img
 
 def find_substratum(img, start_x, y_max, roi_width, scan_height, step_width):
 
@@ -589,7 +590,8 @@ def binary_mask(img, thresholding_method, contrast, blurred, blur_size, outliers
     for _, image in enumerate(img):
         if blurred:
             # Apply Gaussian blur before contrast enhancement
-            image_blurred = cv2.GaussianBlur(image, (blur_size,blur_size), 0)  # Kernel size (5,5), has to be positive and odd
+            sigma = 0.3 * ((blur_size - 1) * 0.5 - 1) + 0.8
+            image_blurred = scipy.ndimage.gaussian_filter(image, sigma=sigma)
         else:
             image_blurred = image
         
@@ -617,37 +619,24 @@ def binary_mask(img, thresholding_method, contrast, blurred, blur_size, outliers
     return img
 
 # Post-Processing functions
-def voxel_count(img, voxel_size):
-
+def voxel_count(binarized_stack: np.ndarray) -> int:
     """
-    Counts the number of white pixels in the image and calculates the volume.
+    Counts the number of pixels with value 1 in the image and calculates the volume.
 
     Parameters
     ----------
     img : numpy.ndarray
         The image as a numpy array.
-    voxel_size : tuple
-        The voxel size of the image. (z, y, x) in mm
 
     Returns
     -------
-    volume : float
-        The volume of the image in mm³
+    count: int
     """
 
-    no_of_white_pixels = np.sum(img == 255)
-    volume = no_of_white_pixels * voxel_size[0] * voxel_size[1] * voxel_size[2]
-    
-    # Prepare result string
-    result_text = (
-        f"Volume = {volume} mm³\n"
-        f"Pixel_dim_z = {voxel_size[0]} mm\n"
-        f"Pixel_dim_y = {voxel_size[1]} mm\n"
-        f"Pixel_dim_x = {voxel_size[2]} mm\n"
-    )
+    if not set(np.unique(binarized_stack)).issubset({0, 1}):
+        raise ValueError("Passed stack is not binarized, contains values unequal to 0 or 1.")
 
-    print(result_text)  # Print results to console
-    return volume
+    return np.sum(binarized_stack==1)
 
 def generate_Height_Map(img, voxel_size, filename, output_folder, vmin, vmax):
 
@@ -1004,6 +993,44 @@ def calculate_porosity(img, threshold=0):
 
     return mean_porosity, std_porosity
 
+
+def calculate_porosity_between_bounds(binarized_stack: np.ndarray) -> float:
+    """
+    Calculates porosity in a binary 3D stack (0=void, 1=material),
+    considering only the region between the first and last material voxel (1) in each column.
+
+    Parameters:
+    ----------
+    img : 3D numpy array with values 0 and 1
+
+    Returns:
+    ----------
+    porosity : float (in %)
+    """
+    _, h, _ = binarized_stack.shape
+    mask = binarized_stack.astype(bool) # 1=True, 0=False
+
+    # Für jede Spalte: erste(oberste) und letzte(unterste) Position mit 1 finden
+    first = np.argmax(mask, axis=1)  # shape (slices, width)
+    last = h - np.argmax(mask[:, ::-1, :], axis=1) - 1  # von unten suchen
+
+    # Leere Spalten werden für die Porositätsberechnung ignoriert
+    no_material = ~np.any(mask, axis=1)
+    first[no_material] = 0
+    last[no_material] = -1  # sorgt für leere Auswahl im nächsten Schritt
+
+    rows = np.arange(h).reshape(1, h, 1)
+    in_bounds = (rows >= first[:, None, :]) & (rows <= last[:, None, :])
+
+    void_region = (binarized_stack == 0) & in_bounds
+
+    void_voxels = np.sum(void_region)
+    total_voxels = np.sum(in_bounds)
+
+    porosity = (void_voxels / total_voxels * 100) if total_voxels > 0 else 0
+
+    print(f"Porosity (between bounds) = {porosity:.3f} %")
+    return porosity
 
 
 
