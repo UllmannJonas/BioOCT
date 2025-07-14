@@ -548,6 +548,26 @@ def untilt(img, thres, y_offset, top_crop):
         
     return img
 
+# untested vectorized version of untilt
+def vectorized_untilt(stack: np.ndarray, substratum_coords: np.ndarray) -> np.ndarray:
+    _, y, x = stack.shape
+    result = np.empty_like(stack)
+
+    y_subs = substratum_coords[:, np.newaxis, :] # transpose coords for broadcasting
+    y_range = np.arange(y).reshape(1, y, 1) # y-axis as array for broadcasting
+
+    keep_mask = y_range < y_subs # boolmask: True=Substratum
+    zeros_below = ~keep_mask # boolmask: True=Zeroed-out substratum
+
+    body = stack[keep_mask].reshape(-1, x)  # stack content (=keep_mask) as 2D array
+    zeros = stack[zeros_below].reshape(-1, x)  # zeros below substratum as 2D array
+    new_stack = np.concatenate([zeros, body], axis=0) # stick together, zeros on top
+
+    result = new_stack.reshape(stack.shape) # reshape to original
+
+    return result
+
+
 def binary_mask(img, thresholding_method, contrast, blurred, blur_size, outliers_size):
     """
     Create a binary mask from an image stack using various preprocessing steps.
