@@ -621,7 +621,7 @@ def binary_mask(img, thresholding_method, contrast, blurred, blur_size, outliers
 # Post-Processing functions
 def voxel_count(binarized_stack: np.ndarray) -> int:
     """
-    Counts the number of pixels with value 1 in the image and calculates the volume.
+    Counts the number of pixels with value 1.
 
     Parameters
     ----------
@@ -1131,7 +1131,6 @@ def load_oct(filepath: Path):
         if renamed and oct_as_zip.exists:
             oct_as_zip.rename(filepath)
 
-    print(meta)
     return data, meta
 
 def save(stack: np.ndarray, stack_metadata: dict, binary_stack: np.ndarray, output_dir: Path) -> bool:

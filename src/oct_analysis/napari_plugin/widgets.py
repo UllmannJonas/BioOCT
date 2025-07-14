@@ -162,6 +162,9 @@ def zero_out_window(viewer: napari.Viewer):
         viewer.layers['no_window'].data = no_window
     else:
         viewer.add_image(no_window, name="no_window", visible=True)
+    
+    coords_layer = viewer.layers['window_coords']
+    viewer.layers.remove(coords_layer)
 
 @magicgui(call_button="Locate Substratum",
             ymin={"widget_type": "SpinBox", "min": 0, "max": 1000, "step": 1, "value": 200},
@@ -206,7 +209,10 @@ def zero_out_substratum(viewer: napari.Viewer):
     if 'no_substratum' in viewer.layers:
         viewer.layers['no_substratum'].data = no_substratum
     else:
-        layer = viewer.add_image(no_substratum, name="no_substratum", visible=True)
+        viewer.add_image(no_substratum, name="no_substratum", visible=True)
+
+    coords_layer = viewer.layers['no_substratum']
+    viewer.layers.remove(coords_layer)
 
 @magicgui(call_button="Increase contrast",
     percentile={"widget_type": "FloatSpinBox", "min": 0.0, "max": 100.0, "step": 0.5, "value": 1.0},
@@ -279,6 +285,16 @@ def save(output_directory, viewer: napari.Viewer):
         viewer.layers.clear()
         show_info(f"Saved stack and binary mask to {output_directory}")
 
+@magicgui(call_button="Count Voxels")
+def count_voxels(viewer: napari.Viewer):
+    if 'binary' not in viewer.layers:
+        show_info("Binarized layer is required.")
+        return
+    
+    binary_stack = viewer.layers['binary'].data
+    voxel_count = ip.voxel_count(binary_stack)
+
+    show_info(f"Voxel count: {voxel_count}")
 
 # Helper functions
 def viz_coords(stack, coord_array, pixel_value):
