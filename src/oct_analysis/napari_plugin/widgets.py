@@ -195,8 +195,9 @@ def zero_out_substratum(viewer: napari.Viewer):
 
 @magicgui(call_button="Increase contrast",
     percentile={"widget_type": "FloatSpinBox", "min": 0.0, "max": 100.0, "step": 0.5, "value": 1.0},
+    show_histograms={"widget_type": "CheckBox", "text": "Show histograms", "value": False},
 )
-def increase_contrast(percentile, viewer: napari.Viewer):
+def increase_contrast(percentile, show_histograms, viewer: napari.Viewer):
     if 'no_substratum' not in viewer.layers:
         show_info("Substratum must be zeroed out first.")
         return
@@ -204,7 +205,8 @@ def increase_contrast(percentile, viewer: napari.Viewer):
     stack = viewer.layers['no_substratum'].data
     
     contrast_enhanced = ip.increase_contrast(stack, percentile)
-    ip.plot_histograms(stack, contrast_enhanced, percentile)
+    if show_histograms:
+        ip.plot_histograms(stack, contrast_enhanced, percentile)
 
     if 'contrast_enhanced' in viewer.layers:
         viewer.layers['contrast_enhanced'].data = contrast_enhanced
