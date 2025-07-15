@@ -254,7 +254,9 @@ def save(output_directory, viewer: napari.Viewer):
     binary_stack = viewer.layers['binary'].data
     metadata = viewer.layers['normalized'].metadata.get('oct_metadata')
 
-    ip.save(stack, metadata, binary_stack, output_directory) # type: ignore
+    if ip.save(stack, metadata, binary_stack, output_directory): # type: ignore
+        viewer.layers.clear()
+        show_info(f"Saved stack and binary mask to {output_directory}")
 
 
 # Helper functions

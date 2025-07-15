@@ -3,6 +3,7 @@ Image processing functions for oct_analysis
 """
 
 import cv2
+from scipy.__config__ import show
 import tifffile as tiff
 import os
 import csv
@@ -17,6 +18,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 import nibabel as nib
 from napari.utils.notifications import show_info
+from napari.utils.notifications import show_error
 
 def read_tiff(file_path: str) -> tuple[np.ndarray, str, dict]:
     """
@@ -1082,7 +1084,7 @@ def load_oct(filepath: Path):
     print(meta)
     return data, meta
 
-def save(stack: np.ndarray, stack_metadata: dict, binary_stack: np.ndarray, output_dir: Path) -> None:
+def save(stack: np.ndarray, stack_metadata: dict, binary_stack: np.ndarray, output_dir: Path) -> bool:
     spacing = stack_metadata['spacing_mm']
     if any(v == 0 for v in spacing.values()):
         affine = np.diag([0.01, 0.01, 0.01, 1.0])
@@ -1104,8 +1106,15 @@ def save(stack: np.ndarray, stack_metadata: dict, binary_stack: np.ndarray, outp
 
     # speichern
     output_dir.mkdir(parents=True, exist_ok=True)
-    nib.save(nii_stack, output_dir / f"{stack_metadata['filename']}.nii.gz") # type: ignore
-    nib.save(nii_binary, output_dir / f"{stack_metadata['filename']}_mask.nii.gz") # type: ignore
+    try:
+        nib.save(nii_stack, output_dir / f"{stack_metadata['filename']}.nii.gz") # type: ignore
+        nib.save(nii_binary, output_dir / f"{stack_metadata['filename']}_mask.nii.gz") # type: ignore
+        return True
+    except Exception as e:
+        show_error(f"Failed to save NIfTI files: {e}")
+        return False
+
+
 
 # Labeling-Functions
 ## processing functions
