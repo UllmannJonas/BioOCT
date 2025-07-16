@@ -127,6 +127,10 @@ def locate_window(ymin, ymax, y_offset, viewer: napari.Viewer):
     if 'roi_filtered' not in viewer.layers:
         show_info("ROI filter has to be applied first.")
         return
+    if ymin >= ymax:
+        show_info("ymin must be less than ymax.")
+        return
+    
     stack = viewer.layers['roi_filtered'].data
     stack_norm = viewer.layers['normalized'].data
 
@@ -165,6 +169,10 @@ def locate_substratum(ymin, ymax, y_offset, viewer: napari.Viewer):
     if 'roi_filtered' not in viewer.layers:
         show_info("ROI filter has to be applied first.")
         return
+    if ymin >= ymax:
+        show_info("ymin must be less than ymax.")
+        return
+    
     stack = viewer.layers['roi_filtered'].data
     stack_norm = viewer.layers['normalized'].data
 
@@ -256,6 +264,10 @@ def remove_outliers(outlier_size, viewer: napari.Viewer):
         output_directory={"widget_type": "FileEdit", "mode": "d", "value": str(Path.home())}
 )
 def save(output_directory, viewer: napari.Viewer):
+    if 'normalized' not in viewer.layers or 'binary' not in viewer.layers:
+        show_info("Normalized and binary layers must be present to save.")
+        return
+    
     stack = viewer.layers['normalized'].data
     binary_stack = viewer.layers['binary'].data
     metadata = viewer.layers['normalized'].metadata.get('oct_metadata')
