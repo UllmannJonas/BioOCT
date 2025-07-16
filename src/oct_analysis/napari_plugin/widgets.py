@@ -7,8 +7,6 @@ from pathlib import Path
 
 from oct_analysis.octools import processing_functions as ip
 
-oct_metadata_global = {} # Global variable to store metadata
-
 @magicgui(call_button="Show Instructions (1/4)")
 def show_instructionsA():
     instructionsA = (
@@ -69,7 +67,13 @@ def load_oct(viewer: napari.Viewer):
         return # Abbrechen
     
     stack, metadata = ip.load_oct(Path(filepath)) # type: ignore
-    oct_metadata_global = metadata # Store metadata globally
+
+    y_max = metadata.get('size_px', {}).get('z', 1000) -1 # Update maximum slider values with the actual size of the OCT images
+    locate_window.ymin.max = y_max -1
+    locate_window.ymax.max = y_max
+    locate_substratum.ymin.max = y_max -1
+    locate_substratum.ymax.max = y_max
+    locate_substratum.ymax.value = y_max
 
     viewer.add_image(stack, name=metadata['filename'], visible=False)
     
@@ -115,8 +119,8 @@ def roi_filter_2D(roi_size, viewer: napari.Viewer):
         viewer.add_image(roi_filtered, name="roi_filtered", visible=False)
 
 @magicgui(call_button="Locate Window",
-            ymin={"widget_type": "SpinBox", "min": 0, "max": oct_metadata_global.get('size_px', {}).get('y', 1000), "step": 1, "value": 0},
-            ymax={"widget_type": "SpinBox", "min": 0, "max": oct_metadata_global.get('size_px', {}).get('y', 1000)+1, "step": 1, "value": 100},
+            ymin={"widget_type": "SpinBox", "min": 0, "max": 1000, "step": 1, "value": 0},
+            ymax={"widget_type": "SpinBox", "min": 0, "max": 1001, "step": 1, "value": 100},
             y_offset={"widget_type": "SpinBox", "min": -100, "max": 100, "step": 1, "value": 0}
 )
 def locate_window(ymin, ymax, y_offset, viewer: napari.Viewer):
