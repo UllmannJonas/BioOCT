@@ -1153,6 +1153,12 @@ def load_oct(filepath: Path):
 
     return data, meta
 
+def _normalize(stack: np.ndarray, p_low: float = 1.0, p_high: float = 99.0) -> np.ndarray:
+    low, high = np.percentile(stack, (p_low, p_high))
+    stack_clipped = np.clip(stack, low, high)
+    stack_normalized = (stack_clipped - low) / (high - low)
+    return stack_normalized
+
 def save(stack: np.ndarray, stack_metadata: dict, binary_stack: np.ndarray, output_dir: Path) -> bool:
     spacing = stack_metadata['spacing_mm']
     if any(v == 0 for v in spacing.values()):
