@@ -1153,10 +1153,9 @@ def load_oct(filepath: Path):
 
     return data, meta
 
-def _normalize(stack: np.ndarray, p_low: float = 1.0, p_high: float = 99.0) -> np.ndarray:
-    low, high = np.percentile(stack, (p_low, p_high))
-    stack_clipped = np.clip(stack, low, high)
-    stack_normalized = (stack_clipped - low) / (high - low)
+def _normalize(stack: np.ndarray) -> np.ndarray:
+    stack_log = np.log1p(stack)
+    stack_normalized = (stack_log - stack_log.min()) / (stack_log.max() - stack_log.min())
     return stack_normalized
 
 def save(stack: np.ndarray, stack_metadata: dict, binary_stack: np.ndarray, output_dir: Path) -> bool:
