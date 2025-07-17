@@ -75,7 +75,7 @@ def load_oct(viewer: napari.Viewer):
     original_layer = viewer.add_image(stack, name=f'{metadata["filename"]} (Original)', visible=False)
     original_layer.metadata['oct_metadata'] = metadata # type: ignore
 
-    stack_norm = ip._normalize(stack, p_low=1.0, p_high=99.0)
+    stack_norm = ip._normalize(stack)
     viewer.add_image(stack_norm, name='base', visible=True)
 
     y_max = metadata.get('size_px', {}).get('z', 1000) -1 # Update maximum slider values with the actual size of the OCT images
@@ -144,9 +144,9 @@ def locate_window(ymin, ymax, y_offset, viewer: napari.Viewer):
         layer = viewer.layers['window_coords']
         layer.data = label_stack
     else:
-        layer = viewer.add_labels(label_stack, name='window_coords', visible=True)
+        coords_layer = viewer.add_labels(label_stack, name='window_coords', visible=True)
     
-    layer.metadata['window_coords'] = window_coords
+    coords_layer.metadata['window_coords'] = window_coords
 
 @magicgui(call_button="Zero Out Window")
 def zero_out_window(viewer: napari.Viewer):
@@ -187,9 +187,9 @@ def locate_substratum(ymin, ymax, y_offset, viewer: napari.Viewer):
         layer = viewer.layers['substratum_coords']
         layer.data = label_stack
     else:
-        layer = viewer.add_labels(label_stack, name="substratum_coords", visible=True)
+        coords_layer = viewer.add_labels(label_stack, name="substratum_coords", visible=True)
     
-    layer.metadata['substratum_coords'] = substratum_coords
+    coords_layer.metadata['substratum_coords'] = substratum_coords
 
 @magicgui(call_button="Zero Out Substratum")
 def zero_out_substratum(viewer: napari.Viewer):
@@ -203,7 +203,7 @@ def zero_out_substratum(viewer: napari.Viewer):
 
     viewer.layers['target'].data = no_substratum
 
-    coords_layer = viewer.layers['no_substratum']
+    coords_layer = viewer.layers['substratum_coords']
     edge_enhanced_layer = viewer.layers['edge_enhanced']
     viewer.layers.remove(coords_layer)
     viewer.layers.remove(edge_enhanced_layer)
