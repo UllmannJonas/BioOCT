@@ -61,7 +61,7 @@ def show_instructionsD():
 
 @magicgui(call_button="Load OCT")
 def load_oct(viewer: napari.Viewer):
-    filepath, _ = QFileDialog.getOpenFileName(None, 'Select OCT file', '', 'OCT files (*.oct)') # type: ignore
+    filepath, _ = QFileDialog.getOpenFileName(None, 'Select OCT file', '', 'OCT files (*.oct *.nii *.nii.gz)') # type: ignore
     if not filepath:
         show_info("No file selected.")
         return # Abbrechen
