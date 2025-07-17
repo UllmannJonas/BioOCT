@@ -90,7 +90,7 @@ def load_oct(viewer: napari.Viewer):
 
 @magicgui(
             call_button="Apply Median Filter",
-            filter_size={"widget_type": "SpinBox", "min": 1, "max": 101, "step": 2, "value": 3, "label": "Filter Size"}
+            filter_size={"widget_type": "SpinBox", "min": 1, "max": 7, "step": 2, "value": 3, "label": "Filter Size"}
     )
 def median_filter(filter_size, viewer: napari.Viewer):
     if 'base' not in viewer.layers:
@@ -104,11 +104,11 @@ def median_filter(filter_size, viewer: napari.Viewer):
     if 'target' in viewer.layers:
         viewer.layers['target'].data = median_filtered
     else:
-        viewer.add_image(median_filtered, name='target', visible=False)
+        viewer.add_image(median_filtered, name='target', visible=True)
 
 
 @magicgui(call_button="Enhance horizontal Edges",
-            roi_size={"widget_type": "SpinBox", "min": 1, "max": 51, "step": 2, "value": 5, "label": "Filter Size"}
+            roi_size={"widget_type": "SpinBox", "min": 1, "max": 21, "step": 2, "value": 5, "label": "Filter Size"}
 )
 def roi_filter_2D(roi_size, viewer: napari.Viewer):
     
@@ -134,11 +134,11 @@ def locate_window(ymin, ymax, y_offset, viewer: napari.Viewer):
         show_info("ymin must be less than ymax.")
         return
     
-    stack = viewer.layers['edge_enhanced'].data
-    target_stack = viewer.layers['target'].data
+    working_stack = viewer.layers['edge_enhanced'].data
+    reference_stack = viewer.layers['base'].data
 
-    window_coords = ip.locate_window(stack, ymin, ymax, y_offset)
-    label_stack = viz_coords(target_stack, window_coords, pixel_value=1)
+    window_coords = ip.locate_window(working_stack, ymin, ymax, y_offset)
+    label_stack = viz_coords(reference_stack, window_coords, pixel_value=1)
 
     if 'window_coords' in viewer.layers:
         layer = viewer.layers['window_coords']
@@ -177,11 +177,11 @@ def locate_substratum(ymin, ymax, y_offset, viewer: napari.Viewer):
         show_info("ymin must be less than ymax.")
         return
     
-    stack = viewer.layers['edge_enhanced'].data
-    target_stack = viewer.layers['target'].data
+    working_stack = viewer.layers['edge_enhanced'].data
+    reference_stack = viewer.layers['target'].data
 
-    substratum_coords = ip.locate_substratum(stack, ymin, ymax, y_offset)
-    label_stack = viz_coords(target_stack, substratum_coords, pixel_value=2)
+    substratum_coords = ip.locate_substratum(working_stack, ymin, ymax, y_offset)
+    label_stack = viz_coords(reference_stack, substratum_coords, pixel_value=2)
 
     if 'substratum_coords' in viewer.layers:
         layer = viewer.layers['substratum_coords']
@@ -240,13 +240,17 @@ def binarize(threshold, viewer: napari.Viewer):
 
     stack = viewer.layers['target'].data
 
-    # finetuning threshold toggle nur auf aktuellem slice
+    # TODO: finetuning threshold toggle nur auf aktuellem slice
     binary = (stack > threshold).astype(np.uint8)
 
     if 'binary' in viewer.layers:
         viewer.layers['binary'].data = binary
     else:
         viewer.add_labels(binary, name="binary", visible=True)
+    
+    if 'target' in viewer.layers:
+        target_layer = viewer.layers['target']
+        viewer.layers.remove(target_layer)
 
 @magicgui(
         outlier_size={'widget_type': 'SpinBox', 'min': 0, 'max': 100, 'step': 1, 'value': 2},
@@ -260,20 +264,20 @@ def remove_outliers(outlier_size, viewer: napari.Viewer):
     viewer.layers['binary'].data = cleaned_binary
 
 @magicgui(
-        call_button='Save stack+mask_stack',
+        call_button='Save Original & Binary',
         output_directory={"widget_type": "FileEdit", "mode": "d", "value": str(Path.home())}
 )
 def save(output_directory, viewer: napari.Viewer):
     original_layer = next((layer for layer in viewer.layers if "Original" in layer.name), None)
     if original_layer is not None:
-        stack = original_layer.data
+        original_stack = original_layer.data
         metadata = original_layer.metadata.get('oct_metadata')
     else:
         show_info("Original layer not found. Please load an OCT file first.")
         return
     binary_stack = viewer.layers['binary'].data
 
-    if ip.save(stack, metadata, binary_stack, output_directory): # type: ignore
+    if ip.save(original_stack, metadata, binary_stack, output_directory): # type: ignore
         viewer.layers.clear()
         show_info(f"Saved stack and binary mask to {output_directory}")
 
