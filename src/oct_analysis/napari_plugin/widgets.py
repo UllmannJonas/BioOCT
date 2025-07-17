@@ -209,7 +209,7 @@ def zero_out_substratum(viewer: napari.Viewer):
     viewer.layers.remove(edge_enhanced_layer)
 
 @magicgui(call_button="Increase contrast",
-    percentile={"widget_type": "FloatSpinBox", "min": 0.0, "max": 100.0, "step": 0.5, "value": 1.0},
+    percentile={"widget_type": "FloatSpinBox", "min": 0.0, "max": 10.0, "step": 0.1, "value": 0.5},
     show_histograms={"widget_type": "CheckBox", "text": "Show histograms", "value": False},
 )
 def increase_contrast(percentile, show_histograms, viewer: napari.Viewer):
@@ -223,37 +223,42 @@ def increase_contrast(percentile, show_histograms, viewer: napari.Viewer):
     if show_histograms:
         ip.plot_histograms(stack, contrast_enhanced, percentile)
 
-    if 'binary' in viewer.layers:
-        viewer.layers['binary'].data = contrast_enhanced
+    if 'bin_base' in viewer.layers:
+        viewer.layers['bin_base'].data = contrast_enhanced
     else:
-        viewer.add_labels(contrast_enhanced, name="binary", visible=True)
+        viewer.add_image(contrast_enhanced, name="bin_base", visible=True)
 
     for lay in viewer.layers:
         lay.visible = False
-    viewer.layers['target'].visible = True
+    viewer.layers['bin_base'].visible = True
 
 @magicgui(
-    threshold={'widget_type': 'FloatSpinBox', 'min': 0.0, 'max': 1.0, 'step': 0.001, 'value': 0.7},
+    threshold={'widget_type': 'FloatSpinBox', 'min': 0.0, 'max': 1.0, 'step': 0.001, 'value': 0.7, 'label': 'Threshold'},
     auto_call=True
 )
 def binarize(threshold, viewer: napari.Viewer):
-    if 'binary' not in viewer.layers:
+    if 'bin_base' not in viewer.layers:
         show_info("Use >>Increase Contrast<< first.")
         return
 
-    stack = viewer.layers['binary'].data
+    stack = viewer.layers['bin_base'].data
 
     # TODO: finetuning threshold toggle nur auf aktuellem slice
     binary = (stack > threshold).astype(np.uint8)
 
-    viewer.layers['binary'].data = binary
-    
-    if 'target' in viewer.layers:
-        target_layer = viewer.layers['target']
-        viewer.layers.remove(target_layer)
+    if 'binary' in viewer.layers:
+        viewer.layers['binary'].data = binary
+    else:
+        viewer.add_labels(binary, name="binary", visible=True)
+
+    for lay in viewer.layers:
+        lay.visible = False
+    viewer.layers['binary'].visible = True
+    viewer.layers['binary'].opacity = 0.5
+    viewer.layers['base'].visible = True
 
 @magicgui(
-        outlier_size={'widget_type': 'SpinBox', 'min': 0, 'max': 100, 'step': 1, 'value': 2},
+        outlier_size={'widget_type': 'SpinBox', 'min': 0, 'max': 100, 'step': 1, 'value': 2, 'label': 'Outlier Size'},
         auto_call=True
 )
 def remove_outliers(outlier_size, viewer: napari.Viewer):
@@ -262,6 +267,12 @@ def remove_outliers(outlier_size, viewer: napari.Viewer):
     cleaned_binary = ip.rm_outliers(stack, outlier_size)
 
     viewer.layers['binary'].data = cleaned_binary
+
+@magicgui(call_button="Confirm Binarization")
+def confirm_binarization(viewer: napari.Viewer):
+    for lay in list(viewer.layers):
+        if not (lay.name == "binary" or "Original" in lay.name):
+            viewer.layers.remove(lay)
 
 @magicgui(
         call_button='Save Original & Binary',

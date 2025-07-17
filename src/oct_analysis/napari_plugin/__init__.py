@@ -55,6 +55,7 @@ def main():
         widgets.increase_contrast,
         widgets.binarize,
         widgets.remove_outliers,
+        widgets.confirm_binarization,
         save_settings,
         widgets.save
     ]
