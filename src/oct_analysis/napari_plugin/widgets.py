@@ -141,8 +141,8 @@ def locate_window(ymin, ymax, y_offset, viewer: napari.Viewer):
     label_stack = viz_coords(reference_stack, window_coords, pixel_value=1)
 
     if 'window_coords' in viewer.layers:
-        layer = viewer.layers['window_coords']
-        layer.data = label_stack
+        coords_layer = viewer.layers['window_coords']
+        coords_layer.data = label_stack
     else:
         coords_layer = viewer.add_labels(label_stack, name='window_coords', visible=True)
     
@@ -184,8 +184,8 @@ def locate_substratum(ymin, ymax, y_offset, viewer: napari.Viewer):
     label_stack = viz_coords(reference_stack, substratum_coords, pixel_value=2)
 
     if 'substratum_coords' in viewer.layers:
-        layer = viewer.layers['substratum_coords']
-        layer.data = label_stack
+        coords_layer = viewer.layers['substratum_coords']
+        coords_layer.data = label_stack
     else:
         coords_layer = viewer.add_labels(label_stack, name="substratum_coords", visible=True)
     
@@ -223,7 +223,10 @@ def increase_contrast(percentile, show_histograms, viewer: napari.Viewer):
     if show_histograms:
         ip.plot_histograms(stack, contrast_enhanced, percentile)
 
-    viewer.layers['target'].data = contrast_enhanced
+    if 'binary' in viewer.layers:
+        viewer.layers['binary'].data = contrast_enhanced
+    else:
+        viewer.add_labels(contrast_enhanced, name="binary", visible=True)
 
     for lay in viewer.layers:
         lay.visible = False
@@ -234,19 +237,16 @@ def increase_contrast(percentile, show_histograms, viewer: napari.Viewer):
     auto_call=True
 )
 def binarize(threshold, viewer: napari.Viewer):
-    if 'target' not in viewer.layers:
-        show_info("Create target layer first.")
+    if 'binary' not in viewer.layers:
+        show_info("Use >>Increase Contrast<< first.")
         return
 
-    stack = viewer.layers['target'].data
+    stack = viewer.layers['binary'].data
 
     # TODO: finetuning threshold toggle nur auf aktuellem slice
     binary = (stack > threshold).astype(np.uint8)
 
-    if 'binary' in viewer.layers:
-        viewer.layers['binary'].data = binary
-    else:
-        viewer.add_labels(binary, name="binary", visible=True)
+    viewer.layers['binary'].data = binary
     
     if 'target' in viewer.layers:
         target_layer = viewer.layers['target']
