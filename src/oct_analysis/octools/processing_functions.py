@@ -6,6 +6,7 @@ import tifffile as tiff
 import os
 import csv
 import numpy as np
+from numpy.typing import NDArray
 import matplotlib.pyplot as plt
 from skimage import exposure, filters, morphology
 import scipy.ndimage
@@ -1153,10 +1154,9 @@ def load_oct(filepath: Path):
 
     return data, meta
 
-def _normalize(stack: np.ndarray) -> np.ndarray:
-    stack_log = np.log1p(stack)
-    stack_normalized = (stack_log - stack_log.min()) / (stack_log.max() - stack_log.min())
-    return stack_normalized
+def _normalize(stack: NDArray[np.float32]) -> NDArray[np.float32]:
+    stack_norm = (stack - np.min(stack)) / (np.max(stack) - np.min(stack))
+    return stack_norm.astype(np.float32)
 
 def save(stack: np.ndarray, stack_metadata: dict, binary_stack: np.ndarray, output_dir: Path) -> bool:
     spacing = stack_metadata['spacing_mm']
