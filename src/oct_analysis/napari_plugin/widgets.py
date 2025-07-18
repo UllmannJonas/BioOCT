@@ -74,6 +74,9 @@ def load_oct(viewer: napari.Viewer):
     locate_substratum.ymin.max = y_max -1
     locate_substratum.ymax.max = y_max
     locate_substratum.ymax.value = y_max
+    
+    if stack is not None:   #If file is loaded correctly
+        viewer.layers.clear()   #Clear existing layers to prevent duplicate naming (i.g. normalized[1])
 
     viewer.add_image(stack, name=metadata['filename'], visible=False)
     
