@@ -4,7 +4,8 @@ version = "1.0.1"
 description = "A package for analyzing optical coherence tomography (OCT) images for biofilm."
 authors = [
   {name = "Andreas Netsch", email = "andreas.netsch@partner.kit.edu"},
-  {name = "Jonas Ullmann", email = "ullmann@dvgw-ebi.de"}
+  {name = "Jonas Ullmann", email = "ullmann@dvgw-ebi.de"},
+  {name = "Matti Telgmann", email = "matti.telgmann@unibw.de"}
 ]
 readme = "README.md"
 license = {text = "MIT"}
@@ -18,11 +19,8 @@ dependencies = [
   "magicgui>=0.9.2",
   "qtpy>=2.4.0",
   "scipy>=1.13.0",
-  "opencv-python>=4.5.0",
   "matplotlib>=3.4.0",
   "tifffile>=2020.6.3",
-  "customtkinter>=5.2.0",
-  "scikit-image>=0.21.0",
 ]
 
 [project.entry-points."napari.manifest"]
@@ -52,13 +50,9 @@ select = ['E', 'F', 'B']
 exclude = [".git", ".venv", "__pycache__", "build", "dist", "docs"]
 
 [tool.ruff.format]
-quote-style = 'double'
+quote-style = 'single'
 indent-style = 'tab'
 line-ending = 'auto'
-
-[tool.uv]
-editable-packages = ["."]
-dev-dependencies = ["oct_analysis[dev]"]
 
 [build-system]
 requires = ["hatchling"]
@@ -67,10 +61,3 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/oct_analysis"]
 include = ["src/oct_analysis/napari_plugin/napari.yaml"]
-
-[tool.setuptools]
-package-dir = { "" = "src" }
-packages = ["oct_analysis", "oct_analysis.napari_plugin"]
-
-[tool.setuptools.package-data]
-"oct_analysis.napari_plugin" = ["napari.yaml"]

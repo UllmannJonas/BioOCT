@@ -6,7 +6,6 @@
 
 # ML: logs and model-checkpoints
 *.txt
-*.png
 *.pth
 
 # Webapp: static files

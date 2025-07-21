@@ -1,28 +1,11 @@
-def main():
-    from oct_analysis.napari_plugin import widgets
-    from qtpy.QtWidgets import QScrollArea, QWidget, QVBoxLayout
-    from magicgui.widgets import Container
-    from magicgui import magicgui
-    import json
-    from pathlib import Path
+from oct_analysis.napari_plugin import widgets
+from qtpy.QtWidgets import QScrollArea, QWidget, QVBoxLayout, QTabWidget
+from magicgui.widgets import Container
+from magicgui import magicgui
+import json
+from pathlib import Path
 
-    widget_list = [
-        widgets.show_instructionsA,
-        widgets.show_instructionsB,
-        widgets.show_instructionsC,
-        widgets.show_instructionsD,
-        widgets.load_oct,
-        widgets.median_filter,
-        widgets.roi_filter_2D,
-        widgets.locate_window,
-        widgets.zero_out_window,
-        widgets.locate_substratum,
-        widgets.zero_out_substratum,
-        widgets.increase_contrast,
-        widgets.binarize,
-        widgets.remove_outliers,
-        widgets.save
-    ]
+def main():
 
     # save-settings funktion. später ersetzen durch class-struktur des widgets.py inhalts
     @magicgui(call_button="Save Settings",
@@ -30,7 +13,7 @@ def main():
     )
     def save_settings(settings_file):
         settings = {}
-        for widget in widget_list:
+        for widget in labeling_widgets:
             params = {}
             # Die ursprünglichen Parameter stehen in __signature__.parameters
             for param in widget.__signature__.parameters:
@@ -48,20 +31,76 @@ def main():
             json.dump(settings, f, indent=4)
     #
 
-    all_widgets = Container(
-        widgets=widget_list + [save_settings],
+    # Instructions Tab
+    instructions_widgets = [
+        widgets.show_instructionsA,
+        widgets.show_instructionsB,
+        widgets.show_instructionsC,
+        widgets.show_instructionsD
+    ]
+    scrolltab_instructions = create_scrolltab(
+        widget_list=instructions_widgets,
+        name='Instructions'
+    )
+    
+    # Labeling Tab
+    labeling_widgets = [
+        widgets.load_oct,
+        widgets.median_filter,
+        widgets.roi_filter_2D,
+        widgets.locate_window,
+        widgets.zero_out_window,
+        widgets.locate_substratum,
+        widgets.zero_out_substratum,
+        widgets.increase_contrast,
+        widgets.binarize,
+        widgets.remove_outliers,
+        widgets.confirm_binarization,
+        save_settings,
+        widgets.save
+    ]
+    scrolltab_labeling = create_scrolltab(
+        widget_list=labeling_widgets,
+        name='Labeling'
+    )
+
+    # Post-Processing Tab
+    post_widgets = [
+        widgets.count_voxels
+    ]
+    scrolltab_post = create_scrolltab(
+        widget_list=post_widgets,
+        name='Post-Processing'
+    )
+    
+    # Merge Tabs
+    tabs = QTabWidget()
+    tabs.addTab(scrolltab_instructions, "Instructions")
+    tabs.addTab(scrolltab_labeling, "Labeling")
+    tabs.addTab(scrolltab_post, "Post-Processing")
+
+    return tabs
+
+
+# helper functions
+def create_scrolltab(widget_list, name="", min_width=300):
+    container = Container(
+        widgets=widget_list,
         layout='vertical',
-        name='Image Processing Tools',
+        name=name,
         visible=True,
         labels=False
     )
 
+    inner_widget = QWidget()
+    inner_layout = QVBoxLayout(inner_widget)
+    inner_layout.addWidget(container.native)
+
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
-    container_widget = QWidget()
-    layout = QVBoxLayout(container_widget)
-    layout.addWidget(all_widgets.native)
-    scroll.setWidget(container_widget)
-    scroll.setMinimumWidth(400)
+    scroll.setWidget(inner_widget)
+    scroll.setMinimumWidth(min_width)
 
-    return scroll
+    scrolltab = scroll
+
+    return scrolltab
