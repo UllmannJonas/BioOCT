@@ -21,12 +21,14 @@ These functions are accessible via direct import into Python code, and as a napa
 - **[Installation Guide (Windows)](docs/INSTALL.md)**  
   Setup instructions for users and developers using PowerShell and `uv`.
 
-- **[Usage Guide](docs/USAGE.md)**
-  Step-by-step description of the GUI workflow and CLI/API examples.
+- **[Usage Guide](docs/USAGE.md)**  
+  Step-by-step description of the napari interface.
 
-- **[API Documentation](https://oct-analysis.readthedocs.io/en/latest/)**
+- **[Contribute](docs/CONTRIBUTE.md)**  
+  Best practice workflow for contributing to the project.
+
+- **[API Documentation](https://oct-analysis.readthedocs.io/en/latest/)** (soon)  
   Full function reference and module descriptions.
-  **Not up-to-date**
 
 ---
 
