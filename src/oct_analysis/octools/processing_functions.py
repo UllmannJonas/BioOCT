@@ -1193,7 +1193,7 @@ def save(stack: np.ndarray, stack_metadata: dict, binary_stack: np.ndarray, outp
 # Labeling-Functions
 ## processing functions
 def median_blur(stack: np.ndarray, filter_size: int) -> np.ndarray:
-    return scipy.ndimage.median_filter(stack, size=(1, filter_size, filter_size)) # TODO: consider fast-median-filters module for performance improvements
+    return scipy.ndimage.median_filter(stack, size=(1, filter_size, filter_size)) # filterplane=2D (xz), not filtering depth (y) since it's anistropic to xz
 
 def roi_filter(stack: np.ndarray, roi_width: int) -> np.ndarray:
     return scipy.ndimage.uniform_filter1d(stack, roi_width, axis=2, mode='reflect')
