@@ -1010,6 +1010,29 @@ def calculate_porosity(img, threshold=0):
 # Labeling functions
 ## utility functions
 def load_oct(filepath: Path):
+
+    ext = ''.join(filepath.suffixes).lower()
+    if ext in ['.nii', '.nii.gz', '.niigz']:
+        img = nib.nifti1.load(str(filepath))
+        data = img.get_fdata(dtype=np.float32)
+        header = img.header
+
+        meta = {
+            'size_px': {
+                'x': int(header['dim'][1]),
+                'z': int(header['dim'][2]),
+                'y': int(header['dim'][3]),
+            },
+            'spacing_mm': {
+                'x': float(header.get_zooms()[0]),
+                'y': float(header.get_zooms()[1]), # type: ignore
+                'z': float(header.get_zooms()[2]), # type: ignore
+            },
+            'filename': str(filepath.stem)
+       }
+        print(meta)
+        return data, meta
+    
     oct_as_zip = filepath.with_suffix('.zip')
     renamed = False
     try:

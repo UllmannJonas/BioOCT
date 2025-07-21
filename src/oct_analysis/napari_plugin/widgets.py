@@ -61,7 +61,7 @@ def show_instructionsD():
 
 @magicgui(call_button="Load OCT")
 def load_oct(viewer: napari.Viewer):
-    filepath, _ = QFileDialog.getOpenFileName(None, 'Select OCT file', '', 'OCT files (*.oct)') # type: ignore
+    filepath, _ = QFileDialog.getOpenFileName(None, 'Select OCT file', '', 'OCT files (*.oct *.nii *.nii.gz)') # type: ignore
     if not filepath:
         show_info("No file selected.")
         return # Abbrechen
@@ -74,6 +74,9 @@ def load_oct(viewer: napari.Viewer):
     locate_substratum.ymin.max = y_max -1
     locate_substratum.ymax.max = y_max
     locate_substratum.ymax.value = y_max
+    
+    if stack is not None:   #If file is loaded correctly
+        viewer.layers.clear()   #Clear existing layers to prevent duplicate naming (i.g. normalized[1])
 
     viewer.add_image(stack, name=metadata['filename'], visible=False)
     
@@ -127,6 +130,10 @@ def locate_window(ymin, ymax, y_offset, viewer: napari.Viewer):
     if 'roi_filtered' not in viewer.layers:
         show_info("ROI filter has to be applied first.")
         return
+    if ymin >= ymax:
+        show_info("ymin must be less than ymax.")
+        return
+    
     stack = viewer.layers['roi_filtered'].data
     stack_norm = viewer.layers['normalized'].data
 
@@ -165,6 +172,10 @@ def locate_substratum(ymin, ymax, y_offset, viewer: napari.Viewer):
     if 'roi_filtered' not in viewer.layers:
         show_info("ROI filter has to be applied first.")
         return
+    if ymin >= ymax:
+        show_info("ymin must be less than ymax.")
+        return
+    
     stack = viewer.layers['roi_filtered'].data
     stack_norm = viewer.layers['normalized'].data
 
@@ -256,6 +267,10 @@ def remove_outliers(outlier_size, viewer: napari.Viewer):
         output_directory={"widget_type": "FileEdit", "mode": "d", "value": str(Path.home())}
 )
 def save(output_directory, viewer: napari.Viewer):
+    if 'normalized' not in viewer.layers or 'binary' not in viewer.layers:
+        show_info("Normalized and binary layers must be present to save.")
+        return
+    
     stack = viewer.layers['normalized'].data
     binary_stack = viewer.layers['binary'].data
     metadata = viewer.layers['normalized'].metadata.get('oct_metadata')
