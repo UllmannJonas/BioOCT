@@ -1077,7 +1077,7 @@ def load_oct(filepath: Path):
                 'z': float(header.get_zooms()[2]), # type: ignore
             },
             'filename': str(filepath.stem)
-       }
+        }
         print(meta)
         return data, meta
     

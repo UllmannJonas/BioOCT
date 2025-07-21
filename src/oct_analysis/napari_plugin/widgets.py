@@ -178,7 +178,7 @@ def locate_substratum(ymin, ymax, y_offset, viewer: napari.Viewer):
         return
     
     working_stack = viewer.layers['edge_enhanced'].data
-    reference_stack = viewer.layers['target'].data
+    reference_stack = viewer.layers['base'].data
 
     substratum_coords = ip.locate_substratum(working_stack, ymin, ymax, y_offset)
     label_stack = viz_coords(reference_stack, substratum_coords, pixel_value=2)
