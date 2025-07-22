@@ -42,7 +42,7 @@ def main():
     
     # Labeling Tab
     labeling_widgets = [
-        widgets.load_oct,
+        widgets.load,
         widgets.median_filter,
         widgets.roi_filter_2D,
         widgets.locate_window,

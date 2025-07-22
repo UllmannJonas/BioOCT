@@ -2,6 +2,7 @@
 Image processing functions for oct_analysis
 """
 
+from typing import Callable
 import tifffile as tiff
 import os
 import csv
@@ -11,207 +12,11 @@ import matplotlib.pyplot as plt
 from skimage import exposure, filters, morphology
 import scipy.ndimage
 from pathlib import Path
-import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
 import nibabel as nib
 from napari.utils.notifications import show_info
 from napari.utils.notifications import show_error
-
-def read_tiff(file_path: str) -> tuple[np.ndarray, str, dict]:
-    """
-    Read a 3D TIFF stack and its metadata.
-
-    Parameters
-    ----------
-    file_path : str
-        Path to the TIFF file
-
-    Returns
-    -------
-    tuple
-        A tuple containing:
-        - numpy.ndarray: The 3D image stack as a numpy array
-        - str: The filename without extension
-        - dict: The metadata from the TIFF file
-
-    Raises
-    ------
-    FileNotFoundError
-        If the file does not exist
-    ValueError
-        If the file could not be read as an image
-    """
-    # Check if the file exists before trying to read it
-    if not os.path.isfile(file_path):
-        raise FileNotFoundError(f"File not found: {file_path}")
-
-    try:
-        # Extract filename without extension
-        filename = os.path.splitext(os.path.basename(file_path))[0]
-
-        # Use tifffile to read the TIFF stack and metadata
-        with tiff.TiffFile(file_path) as tif:
-            page = tif.pages[0]  # Read the first page
-            description = page.tags.get('ImageDescription') # type: ignore
-            imagej_metadata = {}
-
-            if description:
-                desc = description.value
-            for line in desc.split('\n'):
-                if '=' in line:
-                    key, value = line.split('=', 1)
-                    imagej_metadata[key] = value
-            # Read the image stack
-            img_stack = tif.asarray()
-            assert img_stack.dtype == np.float32, "Image stack is not in float32 format!"
-            metadata = {
-            'Z': int(imagej_metadata.get('slices', 1)),
-            'Y': page.tags['ImageLength'].value, # type: ignore
-            'X': page.tags['ImageWidth'].value, # type: ignore
-            'shape': tif.series[0].shape,
-            'dtype': str(tif.series[0].dtype),
-            'axes': tif.series[0].axes,
-            'XResolution': page.tags['XResolution'].value, # type: ignore
-            'YResolution': page.tags['YResolution'].value, # type: ignore
-            'unit': imagej_metadata.get('unit', None),
-            'spacing': float(imagej_metadata.get('spacing', 1.0)),
-        }
-        if img_stack is None:
-            raise ValueError(f"Failed to read image from {file_path}")
-
-        return img_stack, filename, metadata
-    except Exception as e:
-        raise ValueError(f"Error reading TIFF file: {str(e)}") from e
-
-def _normalize_tiff(tiff_stack: np.ndarray) -> np.ndarray:
-    """
-    Normalize a 3D TIFF stack to the range [0, 1].
-
-    Parameters
-    ----------
-    tiff_stack : numpy.ndarray
-        The 3D image stack to normalize (slices, height, width)
-
-    Returns
-    -------
-    numpy.ndarray
-        The normalized 3D image stack as a float32 array
-    """
-    if len(tiff_stack.shape) != 3:
-        raise ValueError("Input must be a 3D array (slices, height, width)")
-    
-    # Normalize each slice to the range [0, 1]
-    tiff_stack = tiff_stack.astype(np.float32)
-    tiff_stack -= np.min(tiff_stack)
-    tiff_stack /= np.max(tiff_stack)
-    
-    return tiff_stack
-
-
-
-
-    """
-    Normalize a 3D TIFF stack to the range [0, 1].
-
-    Parameters
-    ----------
-    tiff_stack : numpy.ndarray
-        The 3D image stack to normalize (slices, height, width)
-
-    Returns
-    -------
-    numpy.ndarray
-        The normalized 3D image stack as a float32 array
-    """
-    if len(tiff_stack.shape) != 3:
-        raise ValueError("Input must be a 3D array (slices, height, width)")
-    
-    # Normalize each slice to the range [0, 1]
-    tiff_stack = tiff_stack.astype(np.float32)
-    tiff_stack -= np.min(tiff_stack)
-    tiff_stack /= np.max(tiff_stack)
-    
-    return tiff_stack
-
-def save_tiff(img, file_path, filename, metadata=None):
-    """
-    Save a 3D numpy array as a TIFF file with metadata.
-
-    Parameters
-    ----------
-    img : numpy.ndarray
-        The 3D image stack to save (slices, height, width)
-    file_path : str
-        Path where to save the TIFF file
-    metadata : dict, optional
-        Dictionary containing metadata to save with the image.
-        Common keys include:
-        - 'shape': tuple, shape of the image
-        - 'dtype': str, data type of the image
-        - 'axes': str, axes order (e.g., 'ZYX')
-        - 'resolution': tuple, (x_resolution, y_resolution) µm per pixel
-        - 'resolutionunit': str, unit of resolution (e.g., 'um')
-
-    Returns
-    -------
-    None
-
-    Raises
-    ------
-    ValueError
-        If the input is not a 3D array or if saving fails
-    """
-    if len(img.shape) != 3:
-        raise ValueError("Input must be a 3D array (slices, height, width)")
-    
-    # Check for zero-size array
-    if img.size == 0 or any(dim == 0 for dim in img.shape):
-        raise ValueError("Cannot save zero-size array or array with zero dimensions")
-
-    try:
-        # Prepare metadata
-        if metadata is None:
-            metadata = {}
-        
-        # Add basic metadata if not present
-        if 'shape' not in metadata:
-            metadata['shape'] = img.shape
-        if 'dtype' not in metadata:
-            metadata['dtype'] = str(img.dtype)
-        if 'axes' not in metadata:
-            metadata['axes'] = 'ZYX'  # Default axes order for 3D stack
-        # Save the image with metadata
-        save_path = os.path.join(file_path, f"{filename}.tif")
-        with tiff.TiffWriter(save_path) as tif:
-            tif.write(
-                img,
-                metadata=metadata,
-                #resolution=metadata.get('resolution', ('X_Resolution', 'Y_Resolution')),
-            )
-
-    except Exception as e:
-        raise ValueError(f"Error saving TIFF file: {str(e)}") from e
-
-# >>>not needed with napari<<<
-def select_tiff_folder():
-    pass
-    #     """
-    #     Opens a window to select a folder containing TIFF files.
-
-    #     Returns
-    #     -------
-    #     str
-    #         The path to the selected folder.
-    #     """
-    #     root = ctk.CTk()
-    #     root.withdraw()  # Hide the root window
-    #     folder_path = ctk.filedialog.askdirectory(title="Select Folder")
-    #     if folder_path:
-    #         print(f"Selected Folder: {folder_path}")
-    #     else:
-    #         print("No folder selected.")
-    #     return folder_path
 
 def save_results_to_csv(output_folder, headers, data):
     """
@@ -253,114 +58,6 @@ def save_results_to_csv(output_folder, headers, data):
         writer.writerow(data)
 
 # Pre-Processing functions
-# >>>not needed for speed, rather keep orginal float32 data<<<
-def convert_to_8bit(img):
-    pass
-    # """
-    # Converts an image to 8-bit format.
-
-    # Parameters
-    # ----------
-    # img : numpy.ndarray
-    #     The image as a numpy array.
-
-    # Returns
-    # -------
-    # numpy.ndarray
-    #     The image as a numpy array.
-    # """
-    # if np.issubdtype(img.dtype, np.floating):
-    #     img = (img - img.min()) / (img.max() - img.min())  # Normalize to [0, 1]
-    #     img = (img * 255).astype(np.uint8)  # Scale to [0, 255]
-    # else:
-    #     # If the image is integer-based (like uint32), just scale it to [0, 255]
-    #     img = (img.astype(np.float32) - img.min()) / (img.max() - img.min())  # Normalize to [0, 1]
-    #     img = (img * 255).astype(np.uint8)  # Scale to [0, 255]
-    # return img
-
-def find_substratum(img, start_x, y_max, roi_width, scan_height, step_width):
-
-    """
-    Find the substratum in a 3D image stack.
-
-    Parameters
-    ----------
-    img : numpy.ndarray
-        The 3D image stack as a numpy array (slices, height, width)
-    start_x : int
-        The x-coordinate of the starting point of the scan (default = 0)
-    y_max : int
-        Maximum y-coordinate of the substratum at the starting point (typically the half of the height of the image)
-    roi_width : int
-        Width of the region of interest (default = 20)
-    scan_height : int
-        Height of the scan area (default = 10)
-    step_width : int
-        Width of the scan steps (default = 5)
-
-    Returns
-    -------
-    numpy.ndarray
-        The image as a numpy array
-
-    Raises
-    ------
-    No Errors
-    """
-    # Ensure we're working with a 3D stack
-    if len(img.shape) != 3:
-        raise ValueError("Input image must be a 3D stack (slices, height, width)")
-
-    # Flip the stack horizontally
-    img = img[:, ::-1, :]
-    slices, h, w = img.shape
-    
-    # Process each slice
-    for slice_idx in range(slices):
-        maxSum = 0
-        memBot = 0
-        # Find the bottom of the membrane in the first slice
-        for i in range(y_max):
-            roi = img[slice_idx, i, start_x:start_x+roi_width]
-            sum_val = np.mean(roi)
-            if sum_val > maxSum:
-                maxSum = sum_val
-                memBot = i
-        memBot1 = memBot
-    # Vorschlag: loops vektorisieren --> schneller
-    # 1. precompute roi-mean für ganzen stack:
-    # filtered = scipy.ndimage.uniform_filter1d(stack, size=roi, axis=2, mode='reflect')
-    # 2. maximum intensity in bestimmtem y-bereich finden:
-    # y_coords = np.argmax(filtered[:, ymin:ymax, :], axis=1)
-    # apply y-offset
-    # y_coords += y_offset
-    # nach diesen drei zeilen haben wir die koordinaten und können untilt oder remove_window machen
-
-
-        # Process each slice
-        for x in range(start_x, w, step_width):
-            memBot = memBot1
-            for y in range(memBot - scan_height, memBot + scan_height, 1):
-                # Ensure 'y' is within bounds for the image height
-                if y < 0:
-                    y = 0
-                elif y >= h:
-                    y = h - 1
-                roi = img[slice_idx, y, x:x+roi_width]
-                sum_val = np.mean(roi)
-                if sum_val > maxSum:
-                    maxSum = sum_val
-                    memBot = y
-                if start_x == 0:
-                    memBot1 = memBot
-            maxSum = 0
-            if memBot > 0:
-                img[slice_idx, :memBot, x:x+step_width] = 0  # Set area to black
-    
-    # Flip the stack back
-    img = img[:, ::-1, :]
-    return img
-
 def find_two_point_line(img, x1=0, x2=None, thres_line=1):
     """
     Find a line between two points in an image and draw it on the image stack.
@@ -1057,108 +754,222 @@ def calculate_porosity_between_bounds(binarized_stack: np.ndarray) -> float:
 
 # Labeling functions
 ## utility functions
-def load_oct(filepath: Path):
+def get_load_fn(filepath: Path) -> Callable:
+    """
+    Get the appropriate loading function based on the file extension.
+    Also checks if file exists.
 
+    Parameters
+    ----------
+    filepath : Path
+        Path to the file.
+
+    Returns
+    -------
+    Callable
+        A function that can load the file.
+    """
+    
+    if not filepath.exists():
+        show_error("File does not exist.")
+        raise FileNotFoundError(f"File not found: {filepath}")
+    
     ext = ''.join(filepath.suffixes).lower()
     if ext in ['.nii', '.nii.gz', '.niigz']:
-        img = nib.nifti1.load(str(filepath))
-        data = img.get_fdata(dtype=np.float32)
-        header = img.header
-
-        meta = {
-            'size_px': {
-                'x': int(header['dim'][1]),
-                'z': int(header['dim'][2]),
-                'y': int(header['dim'][3]),
-            },
-            'spacing_mm': {
-                'x': float(header.get_zooms()[0]),
-                'y': float(header.get_zooms()[1]), # type: ignore
-                'z': float(header.get_zooms()[2]), # type: ignore
-            },
-            'filename': str(filepath.stem)
-        }
-        print(meta)
-        return data, meta
+        return load_nifti
     elif ext == '.oct':
-        with zipfile.ZipFile(filepath, 'r') as z:
-            items = z.namelist()
+        return load_oct
+    elif ext in ['.tif', '.tiff']:
+        return load_tif
+    else:
+        show_error(f"Unsupported file extension: {ext}")
+        raise ValueError(f"Unsupported file extension: {ext}")
 
-            for item in items:
-                if "xml" in item:
-                    header = item
-                elif "Intensity" in item:
-                    intensity = item
-                # elif "Video" in item:
-                #     videoimg = item
+def load_nifti(filepath: Path) -> tuple[np.ndarray, dict]:
+    """
+    Load a NIfTI file and return the image data and metadata.
 
-            # get metadata
-            with z.open(header) as xmlf:
-                tree = ET.parse(xmlf)
-                root = tree.getroot()
-            
-            def get(path, cast=str):
-                element = root.find(path)
-                return cast(element.text) if element is not None else 0
-            
-            try:
-                meta = { # TODO: get VideoImage metadata
-                    'size_px': {
-                        'z': int(get("Image/SizePixel/SizeZ")),
-                        'y': int(get("Image/SizePixel/SizeY")),
-                        'x': int(get("Image/SizePixel/SizeX")),
-                    },
-                    'fov_mm': {
-                        'z': float(get("Image/SizeReal/SizeZ")),
-                        'y': float(get("Image/SizeReal/SizeY")),
-                        'x': float(get("Image/SizeReal/SizeX")),
-                    },
-                    'spacing_mm': {
-                        'z': float(get("Image/PixelSpacing/SizeZ")),
-                        'y': float(get("Image/PixelSpacing/SizeY")),
-                        'x': float(get("Image/PixelSpacing/SizeX")),
-                    },
-                    'instrument': {
-                        'model': get("Instrument/Model"),
-                        'serial': get("Instrument/Serial"),
-                        'central_wavelength': float(get("Instrument/CentralWavelength")),
-                    },
-                    'dtype': get("Image/DataType"),
-                    'timestamp': int(get("Acquisition/Timestamp")),
-                    'filename': str(Path(filepath).stem)
-                }
-                # Fallback falls PixelSpacing = 0:
-                for axis in ['x', 'y', 'z']:
-                    if meta['spacing_mm'][axis] == 0.0:
-                        if meta['size_px'][axis] > 0 and meta['fov_mm'][axis] > 0:
-                            meta['spacing_mm'][axis] = meta['fov_mm'][axis] / meta['size_px'][axis]
-                        else:
-                            print(f"[WARN] Invalid pixel size for axis {axis}, fallback not possible")
+    Parameters
+    ----------
+    filepath : Path
+        Path to the NIfTI file.
 
-            except (TypeError, ValueError, AttributeError) as e:
-                print(f"[ERROR] Failed while parsing metadata: {e}. Process terminated. Please check Header.xml file.")
-                return
+    Returns
+    -------
+    tuple
+        A tuple containing:
+        - numpy.ndarray: The image data as a numpy array.
+        - dict: Metadata including size, spacing, and filename.
+    """
 
-            # reformat intensity.data into np.ndarray
-            with z.open(intensity) as f:
-                intensity_data_raw = f.read()
-            shape = (meta['size_px']['y'], meta['size_px']['x'], meta['size_px']['z']) # ZXY
-            intensity_data = np.frombuffer(intensity_data_raw, dtype=np.float32).copy().reshape(shape)
-            intensity_data = intensity_data.transpose(0, 2, 1)
+    img = nib.nifti1.load(str(filepath))
+    data = img.get_fdata(dtype=np.float32)
+    header = img.header
 
-            # TODO: need metadata from VideoImage first
-            # with z.open(videoimg) as f:
-            #     videoimage_raw = f.read()
-            # shape = (meta['videoimg']['width'], meta['videoimg']['height'], 4) # 4 channels (RGBA)
-            # video_image = np.frombuffer(videoimage_raw, dtype=np.uint8).reshape(shape)
+    meta = {
+        'size_px': {
+            'x': int(header['dim'][1]),
+            'z': int(header['dim'][2]),
+            'y': int(header['dim'][3]),
+        },
+        'spacing_mm': {
+            'x': float(header.get_zooms()[0]),
+            'y': float(header.get_zooms()[1]), # type: ignore
+            'z': float(header.get_zooms()[2]), # type: ignore
+        },
+        'filename': str(filepath.stem)
+    }
+    
+    return data, meta
+
+def load_oct(filepath: Path) -> tuple[np.ndarray, dict]:
+
+    with zipfile.ZipFile(filepath, 'r') as z:
+        items = z.namelist()
+
+        for item in items:
+            if "xml" in item:
+                header = item
+            elif "Intensity" in item:
+                intensity = item
+            # elif "Video" in item:
+            #     videoimg = item
+
+        # get metadata
+        with z.open(header) as xmlf:
+            tree = ET.parse(xmlf)
+            root = tree.getroot()
+        
+        def get(path, cast=str):
+            element = root.find(path)
+            return cast(element.text) if element is not None else 0
+        
+        try:
+            meta = { # TODO: get VideoImage metadata
+                'size_px': {
+                    'z': int(get("Image/SizePixel/SizeZ")),
+                    'y': int(get("Image/SizePixel/SizeY")),
+                    'x': int(get("Image/SizePixel/SizeX")),
+                },
+                'fov_mm': {
+                    'z': float(get("Image/SizeReal/SizeZ")),
+                    'y': float(get("Image/SizeReal/SizeY")),
+                    'x': float(get("Image/SizeReal/SizeX")),
+                },
+                'spacing_mm': {
+                    'z': float(get("Image/PixelSpacing/SizeZ")),
+                    'y': float(get("Image/PixelSpacing/SizeY")),
+                    'x': float(get("Image/PixelSpacing/SizeX")),
+                },
+                'instrument': {
+                    'model': get("Instrument/Model"),
+                    'serial': get("Instrument/Serial"),
+                    'central_wavelength': float(get("Instrument/CentralWavelength")),
+                },
+                'dtype': get("Image/DataType"),
+                'timestamp': int(get("Acquisition/Timestamp")),
+                'filename': str(Path(filepath).stem)
+            }
+            # Fallback falls PixelSpacing = 0:
+            for axis in ['x', 'y', 'z']:
+                if meta['spacing_mm'][axis] == 0.0:
+                    if meta['size_px'][axis] > 0 and meta['fov_mm'][axis] > 0:
+                        meta['spacing_mm'][axis] = meta['fov_mm'][axis] / meta['size_px'][axis]
+                    else:
+                        print(f"[WARN] Invalid pixel size for axis {axis}, fallback not possible")
+
+        except (TypeError, ValueError, AttributeError) as e:
+            print(f"[ERROR] Failed while parsing metadata: {e}. Process terminated. Please check Header.xml file.")
+            return # type: ignore
+
+        # reformat intensity.data into np.ndarray
+        with z.open(intensity) as f:
+            intensity_data_raw = f.read()
+        shape = (meta['size_px']['y'], meta['size_px']['x'], meta['size_px']['z']) # ZXY
+        intensity_data = np.frombuffer(intensity_data_raw, dtype=np.float32).copy().reshape(shape)
+        intensity_data = intensity_data.transpose(0, 2, 1)
+
+        # TODO: need metadata from VideoImage first
+        # with z.open(videoimg) as f:
+        #     videoimage_raw = f.read()
+        # shape = (meta['videoimg']['width'], meta['videoimg']['height'], 4) # 4 channels (RGBA)
+        # video_image = np.frombuffer(videoimage_raw, dtype=np.uint8).reshape(shape)
 
     return intensity_data, meta # video_image
+
+def load_tif(file_path: Path) -> tuple[np.ndarray, dict]:
+    """
+    Load a TIFF file and extract its image data and metadata.
+
+    Parameters
+    ----------
+    file_path : Path
+        The path to the TIFF file.
+
+    Returns
+    -------
+    tuple
+        A tuple containing the image data as a numpy array and a dictionary of metadata.
+    """
+    
+    with tiff.TiffFile(file_path) as tif:
+        page = tif.pages[0] # first page
+        tags = page.tags # type: ignore
+
+        # Extract and parse ImageDescription metadata if available
+        description = tags.get('ImageDescription')  # type: ignore
+        imagej_metadata = {}
+        if description:
+            for line in description.value.splitlines():
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    imagej_metadata[key.strip()] = value.strip()
+        
+        # Read stack data
+        stack = tif.asarray()
+        if stack is None:
+            raise ValueError(f"Failed to read image from {file_path}")
+        if stack.dtype != np.float32:
+            raise ValueError(f"Image stack is not in float32 format: {file_path}")
+
+        # Parse ImageJ metadata
+        metadata = {
+            'Z': int(imagej_metadata.get('slices', 1)),
+            'Y': page.tags['ImageLength'].value, # type: ignore
+            'X': page.tags['ImageWidth'].value, # type: ignore
+            'shape': tif.series[0].shape,
+            'dtype': str(tif.series[0].dtype),
+            'axes': tif.series[0].axes,
+            'XResolution': page.tags['XResolution'].value, # type: ignore
+            'YResolution': page.tags['YResolution'].value, # type: ignore
+            'unit': imagej_metadata.get('unit', None),
+            'spacing': float(imagej_metadata.get('spacing', 1.0)),
+        }
+
+    return stack, metadata
 
 def _normalize(stack: NDArray[np.float32]) -> NDArray[np.float32]:
     stack_norm = (stack - np.min(stack)) / (np.max(stack) - np.min(stack))
     return stack_norm.astype(np.float32)
 
-def save(stack: np.ndarray, stack_metadata: dict, binary_stack: np.ndarray, output_dir: Path) -> bool:
+def get_save_fn(stack: np.ndarray, metadata: dict, fmt: str) -> Callable:
+
+    if not metadata:
+        show_error("Metadata is required for saving.")
+        raise ValueError("Metadata is required for saving.")
+    if not stack:
+        show_error("Stack is required for saving.")
+        raise ValueError("Stack is required for saving.")
+
+    if fmt in ['.nii', '.nii.gz', '.niigz']:
+        return save_as_nifti
+    elif fmt in ['.tif', '.tiff']:
+        return save_as_tiff
+    else:
+        show_error(f"Unsupported file format for saving: {fmt}")
+        raise ValueError(f"Unsupported file format for saving: {fmt}")
+
+def save_as_nifti(stack: np.ndarray, stack_metadata: dict, binary_stack: np.ndarray, output_dir: Path) -> bool:
     spacing = stack_metadata['spacing_mm']
     if any(v == 0 for v in spacing.values()):
         affine = np.diag([0.01, 0.01, 0.01, 1.0])
@@ -1188,15 +999,32 @@ def save(stack: np.ndarray, stack_metadata: dict, binary_stack: np.ndarray, outp
         show_error(f"Failed to save NIfTI files: {e}")
         return False
 
+def save_as_tiff(stack: np.ndarray, metadata: dict, binary_stack: np.ndarray, output_dir: Path) -> bool:
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        with tiff.TiffWriter(output_dir / f"{metadata['filename']}.tiff") as tif:
+            tif.write(
+                stack,
+                photometric='minisblack',
+                metadata=metadata
+            )
+        with tiff.TiffWriter(output_dir / f"{metadata['filename']}_binary.tiff") as bin_tif:
+            bin_tif.write(
+                binary_stack,
+                photometric='minisblack',
+                metadata=metadata
+            )
+        return True
+    except Exception as e:
+        show_error(f"Failed to save TIFF files: {e}")
+        return False
 
 
 # Labeling-Functions
 ## processing functions
 def median_blur(stack: np.ndarray, filter_size: int) -> np.ndarray:
     return scipy.ndimage.median_filter(stack, size=(1, filter_size, filter_size)) # filterplane=2D (xz), not filtering depth (y) since it's anistropic to xz
-
-def roi_filter(stack: np.ndarray, roi_width: int) -> np.ndarray:
-    return scipy.ndimage.uniform_filter1d(stack, roi_width, axis=2, mode='reflect')
 
 def roi_filter_2D(stack: np.ndarray, roi_size: int) -> np.ndarray:
     return scipy.ndimage.uniform_filter(stack, size=(roi_size, roi_size), axes=(0, 2), mode='reflect') # type: ignore

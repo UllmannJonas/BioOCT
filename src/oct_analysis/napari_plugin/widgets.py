@@ -13,14 +13,16 @@ def show_instructions():
     webbrowser.open("https://github.com/AndreasNetsch/oct_analysis")
     show_info("Instructions opened in your browser.")
 
-@magicgui(call_button="Load OCT")
-def load_oct(viewer: napari.Viewer):
-    filepath, _ = QFileDialog.getOpenFileName(None, 'Select OCT file', '', 'OCT files (*.oct *.nii *.nii.gz)') # type: ignore
+@magicgui(call_button="Load OCT/NIfTI/TIF")
+def load(viewer: napari.Viewer):
+    filepath, _ = QFileDialog.getOpenFileName(None, 'Select file', '', 'Format (*.oct *.nii *.nii.gz *niigz *tif *tiff)') # type: ignore
     if not filepath:
         show_info("No file selected.")
         return # Abbrechen
     
-    stack, metadata = ip.load_oct(Path(filepath)) # type: ignore
+    load_fn = ip.get_load_fn(Path(filepath))
+
+    stack, metadata = load_fn(Path(filepath))
 
     if stack is not None:   #If file is loaded correctly
         viewer.layers.clear()   #Clear existing layers to prevent duplicate naming (i.g. normalized[1])
