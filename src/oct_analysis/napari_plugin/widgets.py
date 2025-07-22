@@ -4,61 +4,14 @@ from napari.utils.notifications import show_info
 import numpy as np
 from qtpy.QtWidgets import QFileDialog
 from pathlib import Path
+import webbrowser
 
 from oct_analysis.octools import processing_functions as ip
 
-@magicgui(call_button="Show Instructions (1/4)")
-def show_instructionsA():
-    instructionsA = (
-        "<b>OCT Labeling Workflow:</b><br><br>"
-
-        "<b>1. Load & Normalize</b><br>"
-        "• Click <i>Load OCT</i> to open a .oct file<br>"
-        "• This creates a hidden raw layer and a target (normalized) image layer<br><br>"
-
-        "<b>2. Preprocessing</b><br>"
-        "• Apply <i>Median Filter</i> to smoothen noise but preserve edges<br>"
-        "• Apply <i>ROI 2D Filter</i> to enhance detection of horizontal edges<br><br>"
-    )
-
-    show_info(instructionsA)
-
-@magicgui(call_button="Show Instructions (2/4)")
-def show_instructionsB():
-    instructionsB = (
-        "<b>3. Window/Substratum Detection</b><br>"
-        "• Use <i>Locate Window</i> to find window coordinates<br>"
-        "• Click <i>Zero Out Window</i> to mask it<br>"
-        "• Use <i>Locate Substratum</i> to detect the substratum<br>"
-        "• Click <i>Zero Out Substratum</i> to mask it<br>"
-        "-> Internally, the coordinates are located using the 'edge_enhanced' layer<br>"
-        "-> The masking is then applied to the median_filtered layer (important for binarization later)"
-    )
-
-    show_info(instructionsB)
-
-@magicgui(call_button="Show Instructions (3/4)")
-def show_instructionsC():
-    instructionsC = (
-        "<b>4. Postprocessing</b><br>"
-        "• Use <i>Increase Contrast</i> to improve binarization accuracy<br>"
-        "• Adjust <i>Threshold</i> to binarize. Changing the value auto-calls the binarize-function<br>"
-        "-> The threshold is calculated on the masked median_filtered layer (no_substratum). Zero-values are ignored<br>"
-        "• Optionally use <i>Remove Outliers</i> to clean up biofilm signal in the background noise (also auto-called)<br><br>"
-    )
-
-    show_info(instructionsC)
-
-@magicgui(call_button="Show Instructions (4/4)")
-def show_instructionsD():
-    instructionsD = (
-        "<b>5. Save</b><br>"
-        "• Use <i>Save stack+mask_stack</i> to export original & binary layers as .nii.gz files<br>"
-        "• Use <i>Save Settings</i> to export a JSON file of the current settings of all user-set values"
-    )
-
-    show_info(instructionsD)
-
+@magicgui(call_button="Open Instructions")
+def show_instructions():
+    webbrowser.open("https://github.com/AndreasNetsch/oct_analysis")
+    show_info("Instructions opened in your browser.")
 
 @magicgui(call_button="Load OCT")
 def load_oct(viewer: napari.Viewer):

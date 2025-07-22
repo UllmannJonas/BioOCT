@@ -33,10 +33,7 @@ def main():
 
     # Instructions Tab
     instructions_widgets = [
-        widgets.show_instructionsA,
-        widgets.show_instructionsB,
-        widgets.show_instructionsC,
-        widgets.show_instructionsD
+        widgets.show_instructions
     ]
     scrolltab_instructions = create_scrolltab(
         widget_list=instructions_widgets,
