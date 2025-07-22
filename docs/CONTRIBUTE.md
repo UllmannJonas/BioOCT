@@ -49,7 +49,7 @@ That means:
 - **dev branch**: You can make minor changes on this branch.  
 - **feature branch**: For larger changes, create your own feature branch (from dev)  
 
-### 2.3 Typical Workflow to make changes
+### 2.3 Typical Workflow to Make Changes
 
 0. Open console and navigate to `oct_analysis` folder  
 1. Start on dev: `git checkout dev`  
@@ -57,6 +57,15 @@ That means:
 3. Make changes, use `git commit -m "message"` to create version control points  
 4. Upload branch+changes to github: First `git pull`, then `git push`  
 5. Implement changes in dev: **Create Pull request** -> request will be reviewed (reach out to collaborators)
+
+### 2.4 Advanced Options / Mistake Correction with Git
+
+<!-- If the table shows a terrible format in your code editor, try allowing unlimited line lenght. In VSCode it works by hitting alt+z -->
+| **Scenario** | **Solution** |
+| ------------ | ------------ |
+| You edited files while being on the wrong branch (e.g. main).<br>You haven't commited them yet. | 1. Use `git stash` to save changes in the "stash".<br>2. Create/switch to the correct branch.<br>3. Make sure it is up-to-date (`git pull`).<br>4. Apply your stashed changes with `git stash pop`. |
+| You forgot to update (`git pull`) before upload (`git push`).<br> Git yells something about non-fast-forward. | 1. Use `git pull --rebase`.<br>2. Resolve any conflics (e.g. in VSCodes Merge Editor).<br>3. `git push` again. |
+| Unknown scenarios.<br> You're stuck. | Describe the problem to AI/LLM.<br>Reach out to collaborators.<br> Solve it together if unsure. |
 
 ---
 
@@ -76,7 +85,7 @@ In VScode for example you can add a lot of useful extensions:
 - Instead of the console, you can use GUI programs to work with Git - same principles apply  
  -> GitHub Desktop / Git Extensions / VSCode Extensions
 - **Best practices in a nutshell:**  
- Don’t work directly on main.
- Don’t keep feature branches alive for weeks.
- Pull often. Commit often. Push when stable.
- Ask if unsure.
+ Don’t work directly on main.  
+ Don’t keep feature branches alive for weeks.  
+ Pull often. Commit often. Push when stable.  
+ Ask if unsure.  

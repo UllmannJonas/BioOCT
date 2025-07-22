@@ -3,7 +3,8 @@
 ## Opeing Napari + Plugin
 
 1. Set up the installation as described >[here](INSTALL.md)<.
-2. Activate your virtual environment. Then type `napari`
+2. (a) Activate your virtual environment. Then type `napari`
+2. (b) You can also double-click on the `run_napari_win.bat` file.
 3. Napari will open (first time after installing can take some time, due to python files getting compiled).
 4. In napari, click on `Plugins` (at the top), choose OCTool.
 5. On the right, the plugins widgets will appear
@@ -16,14 +17,17 @@
  Creates: `Original layer (raw, hidden)`, `base layer (normalized, visible)`
 
 - **Apply Median Filter**
- Reduces high-frequency noise.  
+ Reduces high-frequency noise by median filtering with a 2D kernel in the istropic dimensions: xz.  
  Works with: `base layer`  
- Creates: `target layer (from base)`
+ Creates: `target layer (from base)`  
+ *Note:* this is the heaviest processing step. larger kernel takes longer. size=1 does no filtering.
 
 - **Enhance Horizontal Edges (ROI Filter)**
- Applies an averaging filter in the shape of a horizontal 2D plane to highlight horizontal features.  
+ Applies an averaging filter in the shape of a horizontal 2D plane to highlight horizontal features. It is oriented the same way as the median filter. 
+ Parameter: kernel edge length  
  Works with: `target layer`  
- Creates: `edge_enhanced layer (from target)`
+ Creates: `edge_enhanced layer (from target)`  
+ *Note:* size=1 does no filtering.
 
 - **Locate Window**
  Detects highest-intensity pixel between ymin and ymax, with optional vertical offset.
@@ -63,11 +67,15 @@
  Cleans up all intermediate layers, keeping only the final binary mask and the raw Original.
  Removes: all but `binary layer` and `Original layer`
 
+- **Save Settings**
+ Exports the current parameter settings of the widgets as a JSON file
+
 - **Save Original & Binary**
  Exports both the raw and binary stacks as .nii.gz files, with metadata (instrument model, wavelength, timestamp) encoded in the NIfTI header.
 
 ### Layer Overview
 
+<!-- If the table shows a terrible format in your code editor, try allowing unlimited line lenght. In VSCode it works by hitting alt+z -->
 | Layer Name          | Content                               | Created from            |
 | ------------------- | ------------------------------------- | ----------------------- |
 | `Original`          | Raw OCT volume with metadata          | .oct file               |

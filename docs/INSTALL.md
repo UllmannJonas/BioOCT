@@ -4,11 +4,11 @@ This guide explains how to set up a full development environment using [`uv`](ht
 
 ## Requirements
 
-- [Git](https://git-scm.com/)  
+- **[Git](https://git-scm.com/)**  
   Install the latest version for Windows.
-- [Python](https://www.python.org/downloads/windows/)  
+- **[Python](https://www.python.org/downloads/windows/)**  
   Install any Version **>=3.11**
-- [`uv`](https://github.com/astral-sh/uv)  
+- **[uv](https://github.com/astral-sh/uv)**  
   PowerShell command to install uv: (`powershell -ExecutionPolicy Bypass -c "irm https://github.com/astral-sh/uv/releases/download/0.7.21/uv-installer.ps1 | iex"`)
 - PowerShell terminal (recommended)
 
