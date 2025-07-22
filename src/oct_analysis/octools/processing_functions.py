@@ -1080,30 +1080,29 @@ def load_oct(filepath: Path):
         }
         print(meta)
         return data, meta
-    
-    oct_as_zip = filepath.with_suffix('.zip')
-    renamed = False
-    try:
-        filepath.rename(oct_as_zip)
-        renamed = True
+    elif ext == '.oct':
+        with zipfile.ZipFile(filepath, 'r') as z:
+            items = z.namelist()
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            header_path = tmp_path / 'Header.xml'
-            data_path = tmp_path / 'data' / 'Intensity.data'
-            with zipfile.ZipFile(oct_as_zip, 'r') as zip_ref:
-                zip_ref.extractall(tmp_path)
+            for item in items:
+                if "xml" in item:
+                    header = item
+                elif "Intensity" in item:
+                    intensity = item
+                # elif "Video" in item:
+                #     videoimg = item
 
             # get metadata
-            tree = ET.parse(header_path)
-            root = tree.getroot()
-
+            with z.open(header) as xmlf:
+                tree = ET.parse(xmlf)
+                root = tree.getroot()
+            
+            def get(path, cast=str):
+                element = root.find(path)
+                return cast(element.text) if element is not None else 0
+            
             try:
-                def get(path, cast=str):
-                    element = root.find(path)
-                    return cast(element.text) if element is not None else 0
-
-                meta = {
+                meta = { # TODO: get VideoImage metadata
                     'size_px': {
                         'z': int(get("Image/SizePixel/SizeZ")),
                         'y': int(get("Image/SizePixel/SizeY")),
@@ -1137,22 +1136,23 @@ def load_oct(filepath: Path):
                             print(f"[WARN] Invalid pixel size for axis {axis}, fallback not possible")
 
             except (TypeError, ValueError, AttributeError) as e:
-                print(f"[ERROR] Failed to parse metadata: {e}. Process terminated. Please check Header.xml file.")
+                print(f"[ERROR] Failed while parsing metadata: {e}. Process terminated. Please check Header.xml file.")
                 return
 
             # reformat intensity.data into np.ndarray
-            with open(data_path, 'rb') as f:
+            with z.open(intensity) as f:
                 intensity_data_raw = f.read()
+            shape = (meta['size_px']['y'], meta['size_px']['x'], meta['size_px']['z']) # ZXY
+            intensity_data = np.frombuffer(intensity_data_raw, dtype=np.float32).copy().reshape(shape)
+            intensity_data = intensity_data.transpose(0, 2, 1)
 
-            shape_raw = (meta['size_px']['y'], meta['size_px']['x'], meta['size_px']['z']) # ZXY
-            data = np.frombuffer(intensity_data_raw, dtype=np.float32).copy().reshape(shape_raw)
-            data = data.transpose(0, 2, 1)
-        
-    finally:
-        if renamed and oct_as_zip.exists:
-            oct_as_zip.rename(filepath)
+            # TODO: need metadata from VideoImage first
+            # with z.open(videoimg) as f:
+            #     videoimage_raw = f.read()
+            # shape = (meta['videoimg']['width'], meta['videoimg']['height'], 4) # 4 channels (RGBA)
+            # video_image = np.frombuffer(videoimage_raw, dtype=np.uint8).reshape(shape)
 
-    return data, meta
+    return intensity_data, meta # video_image
 
 def _normalize(stack: NDArray[np.float32]) -> NDArray[np.float32]:
     stack_norm = (stack - np.min(stack)) / (np.max(stack) - np.min(stack))
