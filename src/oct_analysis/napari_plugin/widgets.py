@@ -1,3 +1,4 @@
+from cProfile import label
 from magicgui import magicgui
 import napari
 from napari.utils.notifications import show_info
@@ -228,15 +229,37 @@ def remove_outliers(outlier_size, viewer: napari.Viewer):
 
 @magicgui(call_button="Confirm Binarization")
 def confirm_binarization(viewer: napari.Viewer):
+    if 'binary' not in viewer.layers:
+        show_info("Binarization has to be applied first.")
+        return
     for lay in list(viewer.layers):
         if not (lay.name == "binary" or "Original" in lay.name):
             viewer.layers.remove(lay)
 
 @magicgui(
-        call_button='Save Original & Binary',
-        output_directory={"widget_type": "FileEdit", "mode": "d", "value": str(Path.home())}
+    input_text={'widget_type': 'LineEdit', 'label': 'User handle'},
+    auto_call=True  # Funktion wird bei jeder Änderung aufgerufen
 )
-def save(output_directory, viewer: napari.Viewer):
+def handle_input(input_text: str):
+    return input_text
+
+
+setting_widgets = [ #Needs to be updated if new widgets are added
+    handle_input,
+    median_filter,
+    roi_filter_2D,
+    increase_contrast,
+    binarize,
+    remove_outliers
+]
+
+@magicgui(
+        call_button='Save Original & Binary',
+        output_directory={"widget_type": "FileEdit", "mode": "d", "value": str(Path.home())},
+        save_settings={"widget_type": "CheckBox", "text": "Save settings", "value": True},
+        settings_directory={"widget_type": "FileEdit", "mode": "w", "value": str(Path.home() / "settings.json")}
+)
+def save(output_directory, save_settings, settings_directory, viewer: napari.Viewer):
     original_layer = next((layer for layer in viewer.layers if "Original" in layer.name), None)
     if original_layer is not None:
         original_stack = original_layer.data
@@ -248,7 +271,12 @@ def save(output_directory, viewer: napari.Viewer):
 
     if ip.save(original_stack, metadata, binary_stack, output_directory): # type: ignore
         viewer.layers.clear()
-        show_info(f"Saved stack and binary mask to {output_directory}")
+        if save_settings:
+            if ip.save_settings(settings_directory, handle_input.input_text.value.strip(), setting_widgets, metadata): # type: ignore
+                show_info(f"Saved stack and binary mask to {output_directory} and settings to {settings_directory}")
+        else:
+            show_info(f"Saved stack and binary mask to {output_directory})")
+
 
 @magicgui(call_button="Count Voxels")
 def count_voxels(viewer: napari.Viewer):
@@ -272,10 +300,3 @@ def viz_coords(stack, coord_array, pixel_value):
     label_stack[z_idx[mask], y_idx[mask], x_idx[mask]] = pixel_value
 
     return label_stack
-
-@magicgui(
-    input_text={'widget_type': 'LineEdit', 'label': 'User handle'},
-    auto_call=True  # Funktion wird bei jeder Änderung aufgerufen
-)
-def handle_input(input_text: str):
-    return input_text

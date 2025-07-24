@@ -1021,6 +1021,38 @@ def save_as_tiff(stack: np.ndarray, metadata: dict, binary_stack: np.ndarray, ou
         return False
 
 
+def save_settings(settings_file, user_handle: str, setting_widgets: list, stack_metadata: dict) -> bool:
+    settings = {}
+
+    filename_image = stack_metadata['filename']
+    match = re.search(r"_(\d+)_", filename_image)
+    image_id = match.group(1) if match else "unknown"   #Read image ID from filename, e.g. "Mina_0054_Mode3D.oct" -> "0054"
+
+    filename = f"settings_{image_id}_{user_handle}.json"
+    settings_file = Path(settings_file).parent / filename
+
+    for widget in setting_widgets:
+        params = {}
+        # Die ursprünglichen Parameter stehen in __signature__.parameters
+        for param in widget.__signature__.parameters:
+            if param == "viewer":
+                continue  # viewer ist nicht serialisierbar
+            w = widget.get_widget(param)
+            if w is not None:
+                val = w.value
+                if isinstance(val, Path):
+                    val = str(val)
+                params[param] = val
+        settings[widget.name or widget.__class__.__name__] = params
+
+    try:
+        with open(settings_file, "w") as f:
+            json.dump(settings, f, indent=4)
+            return True
+    except Exception as e:
+        show_error(f"Failed to save settings: {e}")
+        return False
+
 # Labeling-Functions
 ## processing functions
 def median_blur(stack: np.ndarray, filter_size: int) -> np.ndarray:
