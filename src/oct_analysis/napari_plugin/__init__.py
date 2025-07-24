@@ -13,6 +13,11 @@ def main():
     )
     def save_settings(settings_file):
         settings = {}
+
+        user_handle = widgets.handle_input.input_text.value.strip()
+        filename = f"settings_{user_handle}.json"
+        settings_file = Path(settings_file).parent / filename
+
         for widget in labeling_widgets:
             params = {}
             # Die ursprünglichen Parameter stehen in __signature__.parameters
@@ -53,6 +58,7 @@ def main():
         widgets.binarize,
         widgets.remove_outliers,
         widgets.confirm_binarization,
+        widgets.handle_input,
         save_settings,
         widgets.save
     ]

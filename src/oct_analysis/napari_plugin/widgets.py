@@ -66,6 +66,9 @@ def median_filter(filter_size, viewer: napari.Viewer):
             roi_size={"widget_type": "SpinBox", "min": 1, "max": 21, "step": 2, "value": 5, "label": "Filter Size"}
 )
 def roi_filter_2D(roi_size, viewer: napari.Viewer):
+    if 'target' not in viewer.layers:
+        show_info("Median Filter has to be applied first.")
+        return
     
     stack = viewer.layers['target'].data
 
@@ -269,3 +272,10 @@ def viz_coords(stack, coord_array, pixel_value):
     label_stack[z_idx[mask], y_idx[mask], x_idx[mask]] = pixel_value
 
     return label_stack
+
+@magicgui(
+    input_text={'widget_type': 'LineEdit', 'label': 'User handle'},
+    auto_call=True  # Funktion wird bei jeder Änderung aufgerufen
+)
+def handle_input(input_text: str):
+    return input_text
