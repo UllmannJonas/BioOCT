@@ -9,18 +9,10 @@ import webbrowser
 
 from oct_analysis.octools import processing_functions as ip
 
-<<<<<<< HEAD
 @magicgui(call_button="Open Instructions")
 def show_instructions():
     webbrowser.open("https://github.com/AndreasNetsch/oct_analysis")
     show_info("Instructions opened in your browser.")
-=======
-
-@magicgui(call_button="Show Instructions (1/4)")
-def show_instructionsA():
-    instructionsA = (
-        "<b>OCT Labeling Workflow:</b><br><br>"
->>>>>>> 28ec39f (Fixed: Confirm binarization could be used before defining threshold, leading to deletion of all layers; added exit condition.)
 
 @magicgui(call_button="Load OCT/NIfTI/TIF")
 def load(viewer: napari.Viewer):
