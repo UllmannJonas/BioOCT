@@ -13,6 +13,7 @@ def main():
     # )
     # def save_settings(settings_file):
     #     settings = {}
+<<<<<<< HEAD
 
     #     user_handle = widgets.handle_input.input_text.value.strip()
     #     filename = f"settings_{user_handle}.json"
@@ -36,24 +37,26 @@ def main():
     )
     def save_settings(settings_file):
         settings = {}
+=======
+>>>>>>> 28ec39f (Fixed: Confirm binarization could be used before defining threshold, leading to deletion of all layers; added exit condition.)
 
-        user_handle = widgets.handle_input.input_text.value.strip()
-        filename = f"settings_{user_handle}.json"
-        settings_file = Path(settings_file).parent / filename
+    #     user_handle = widgets.handle_input.input_text.value.strip()
+    #     filename = f"settings_{user_handle}.json"
+    #     settings_file = Path(settings_file).parent / filename
 
-        for widget in labeling_widgets:
-            params = {}
-            # Die ursprünglichen Parameter stehen in __signature__.parameters
-            for param in widget.__signature__.parameters:
-                if param == "viewer":
-                    continue  # viewer ist nicht serialisierbar
-                w = widget.get_widget(param)
-                if w is not None:
-                    val = w.value
-                    if isinstance(val, Path):
-                        val = str(val)
-                    params[param] = val
-            settings[widget.name or widget.__class__.__name__] = params
+    #     for widget in labeling_widgets:
+    #         params = {}
+    #         # Die ursprünglichen Parameter stehen in __signature__.parameters
+    #         for param in widget.__signature__.parameters:
+    #             if param == "viewer":
+    #                 continue  # viewer ist nicht serialisierbar
+    #             w = widget.get_widget(param)
+    #             if w is not None:
+    #                 val = w.value
+    #                 if isinstance(val, Path):
+    #                     val = str(val)
+    #                 params[param] = val
+    #         settings[widget.name or widget.__class__.__name__] = params
 
     #     with open(settings_file, "w") as f:
     #         json.dump(settings, f, indent=4)
@@ -82,7 +85,7 @@ def main():
         widgets.remove_outliers,
         widgets.confirm_binarization,
         widgets.handle_input,
-        save_settings,
+#        save_settings,
         widgets.save
     ]
     scrolltab_labeling = create_scrolltab(

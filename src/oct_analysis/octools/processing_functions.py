@@ -17,6 +17,8 @@ import xml.etree.ElementTree as ET
 import nibabel as nib
 from napari.utils.notifications import show_info
 from napari.utils.notifications import show_error
+import json
+import re
 
 def save_results_to_csv(output_folder, headers, data):
     """
@@ -999,6 +1001,7 @@ def save_as_nifti(stack: np.ndarray, stack_metadata: dict, binary_stack: np.ndar
         show_error(f"Failed to save NIfTI files: {e}")
         return False
 
+<<<<<<< HEAD
 def save_as_tiff(stack: np.ndarray, metadata: dict, binary_stack: np.ndarray, output_dir: Path) -> bool:
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1024,6 +1027,11 @@ def save_as_tiff(stack: np.ndarray, metadata: dict, binary_stack: np.ndarray, ou
 def save_settings(settings_file, user_handle: str, setting_widgets: list, stack_metadata: dict) -> bool:
     settings = {}
 
+=======
+def save_settings(settings_file, user_handle: str, setting_widgets: list, stack_metadata: dict) -> bool:
+    settings = {}
+
+>>>>>>> 28ec39f (Fixed: Confirm binarization could be used before defining threshold, leading to deletion of all layers; added exit condition.)
     filename_image = stack_metadata['filename']
     match = re.search(r"_(\d+)_", filename_image)
     image_id = match.group(1) if match else "unknown"   #Read image ID from filename, e.g. "Mina_0054_Mode3D.oct" -> "0054"
