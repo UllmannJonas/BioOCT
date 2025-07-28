@@ -6,7 +6,7 @@ Press SPACE to pause and any key to continue, or ESC to exit.
 
 Build OCTViewer.exe with PyInstaller:
     cd src/octviewer
-    pyinstaller --onefile -n OCTViewer_v1 octviewer.py
+    pyinstaller --onefile -n OCTViewer_v2 octviewer.py
 """
 
 import zipfile
@@ -102,11 +102,12 @@ def display_oct(intensity_data: np.ndarray, video_image: np.ndarray = None) -> N
         
         
         # Display Intensity Data
+        slice_axis = "y" # default: side-view
         i = 0
         delay = int(1000 / 120)  #=8.33. Start with 120(-rendering time = 60) FPS
         MAX_DELAY = 256
         show_help = False
-        help_text = "SPACE to pause, +/- to change speed, ESC to exit, h to toggle help"
+        help_text = "SPACE to pause, +/- to change speed, ESC to exit, TAB to reslice ZX <-> YX, h to toggle help"
 
         cv2.namedWindow("OCT Viewer")
         fps_window = deque(maxlen=30)
@@ -114,11 +115,16 @@ def display_oct(intensity_data: np.ndarray, video_image: np.ndarray = None) -> N
         while True:
             t0 = time.perf_counter()
 
-            slice = intensity_data[i, :, :].copy()
+            if slice_axis == "y":
+                slice = intensity_data[i, :, :].copy() # Y-Achse: ZX-Slice
+                n_slices = intensity_data.shape[0]
+            else:
+                slice = intensity_data[:, i, :].copy() # Z-Achse: YX-Slice
+                n_slices = intensity_data.shape[1]
 
             if show_help:
                 slice = cv2.cvtColor(slice, cv2.COLOR_GRAY2BGR)
-                y0, dy = 20, 20
+                y0, dy = 25, 25
                 for j, line in enumerate(help_text.split(", ")):
                     y = y0 + j * dy
                     cv2.putText(
@@ -143,6 +149,13 @@ def display_oct(intensity_data: np.ndarray, video_image: np.ndarray = None) -> N
                 delay = max(8, delay // 2)
             elif key == ord('-'):  # '-' = decrease speed
                 delay = min(MAX_DELAY, delay * 2)
+            elif key == 9: # TAB to reslice
+                if slice_axis == "y":
+                    slice_axis = "z"
+                    i = 0
+                else:
+                    slice_axis = "y"
+                    i = 0
             elif key == 27:  # ESC = abbrechen
                 break
 
@@ -150,13 +163,13 @@ def display_oct(intensity_data: np.ndarray, video_image: np.ndarray = None) -> N
             fps_window.append(1 / frame_time if frame_time > 0 else 0)
             avg_fps = sum(fps_window) / len(fps_window)
 
-            text = f"OCT Viewer | Slice {i+1}/{intensity_data.shape[0]} | {avg_fps:.1f} FPS || 'h' = Help"
+            text = f"OCT Viewer | Slice {i+1}/{n_slices} | {avg_fps:.1f} FPS || 'h' = Help"
             cv2.setWindowTitle(
                 "OCT Viewer",
                 text
             )
         
-            i = (i + 1) % intensity_data.shape[0]
+            i = (i + 1) % n_slices
 
         
         cv2.destroyAllWindows()
