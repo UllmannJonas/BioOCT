@@ -70,6 +70,15 @@ def main():
         name='Labeling'
     )
 
+    auto_labeling_widgets = [
+        widgets.load_settings,
+        widgets.apply_loaded_settings_single
+    ]
+    scrolltab_auto_labeling = create_scrolltab(
+        widget_list=auto_labeling_widgets,
+        name='Auto Labeling'
+    )
+
     # Post-Processing Tab
     post_widgets = [
         widgets.count_voxels
@@ -83,6 +92,7 @@ def main():
     tabs = QTabWidget()
     tabs.addTab(scrolltab_instructions, "Instructions")
     tabs.addTab(scrolltab_labeling, "Labeling")
+    tabs.addTab(scrolltab_auto_labeling, "Auto Labeling")
     tabs.addTab(scrolltab_post, "Post-Processing")
 
     return tabs

@@ -288,6 +288,48 @@ def save(file_format, output_directory, save_settings, settings_directory, viewe
             show_info(f"Saved stack and binary mask to {output_directory})")
 
 
+@magicgui(call_button="Load settings.json")
+def load_settings(viewer: napari.Viewer):
+    filepath, _ = QFileDialog.getOpenFileName(None, 'Select file', '', 'Format (*.json)') # type: ignore
+    if not filepath:
+        show_info("No file selected.")
+        return # Abort
+    
+    settings = ip.load_settings(Path(filepath))
+    if not settings:
+        show_info("No valid settings found in the file.")
+        return
+
+    # Update the widgets with the loaded settings
+    user_handle = settings.get('handle_input', {}).get('input_text', '')
+    handle_input.input_text.value = user_handle
+    median_filter.filter_size.value = settings.get('median_filter', {}).get('filter_size', 3)
+    roi_filter_2D.roi_size.value = settings.get('roi_filter_2D', {}).get('roi_size', 5)
+    increase_contrast.percentile.value = settings.get('increase_contrast', {}).get('percentile', 0.5)
+    binarize.threshold.value = settings.get('binarize', {}).get('threshold', 0.7)
+    remove_outliers.outlier_size.value = settings.get('remove_outliers', {}).get('outlier_size', 2)
+
+    show_info(f"Loaded settings from {filepath} for user {user_handle}")
+
+@magicgui(call_button="Apply loaded settings to current stack")
+def apply_loaded_settings_single(viewer: napari.Viewer):
+    if 'base' not in viewer.layers:
+        show_info("Load an OCT file first.")
+        return
+
+    # Apply the settings to the current stack
+    median_filter(viewer=viewer)
+    roi_filter_2D(viewer=viewer)
+    increase_contrast(viewer=viewer)
+    binarize(viewer=viewer)
+    remove_outliers(viewer=viewer)
+
+    show_info("Applied loaded settings to the current stack.")
+
+# @magicgui(call_button="Apply loaded settings to multiple files")
+# def apply_loaded_settings_bulk(viewer:napari.Viewer):
+#     filepath, _ = QFileDialog.getOpenFileName(None, 'Select file', '', 'Format (*.oct *.nii *.nii.gz *niigz *tif *tiff)') # type: ignore
+
 @magicgui(call_button="Count Voxels")
 def count_voxels(viewer: napari.Viewer):
     if 'binary' not in viewer.layers:

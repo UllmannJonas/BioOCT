@@ -950,6 +950,15 @@ def load_tif(file_path: Path) -> tuple[np.ndarray, dict]:
 
     return stack, metadata
 
+def load_settings (settings_file: Path) -> dict:
+    if not settings_file.exists():
+        show_error(f"Settings file does not exist: {settings_file}")
+        raise FileNotFoundError(f"Settings file not found: {settings_file}")
+
+    with open(settings_file, "r") as f:
+        settings = json.load(f)
+    return settings
+
 def _normalize(stack: NDArray[np.float32]) -> NDArray[np.float32]:
     stack_norm = (stack - np.min(stack)) / (np.max(stack) - np.min(stack))
     return stack_norm.astype(np.float32)
