@@ -956,10 +956,10 @@ def _normalize(stack: NDArray[np.float32]) -> NDArray[np.float32]:
 
 def get_save_fn(stack: np.ndarray, metadata: dict, fmt: str) -> Callable:
 
-    if not metadata:
+    if metadata is None:
         show_error("Metadata is required for saving.")
         raise ValueError("Metadata is required for saving.")
-    if not stack:
+    if stack is None:
         show_error("Stack is required for saving.")
         raise ValueError("Stack is required for saving.")
 

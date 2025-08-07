@@ -19,7 +19,7 @@ def load(viewer: napari.Viewer):
     filepath, _ = QFileDialog.getOpenFileName(None, 'Select file', '', 'Format (*.oct *.nii *.nii.gz *niigz *tif *tiff)') # type: ignore
     if not filepath:
         show_info("No file selected.")
-        return # Abbrechen
+        return # Abort
     
     load_fn = ip.get_load_fn(Path(filepath))
 
@@ -158,6 +158,9 @@ def zero_out_substratum(viewer: napari.Viewer):
     if 'target' not in viewer.layers:
         show_info("Create target layer first.")
         return
+    if 'substratum_coords' not in viewer.layers:
+        show_info("Substratum has to be located first.")
+        return
     substratum_coords = viewer.layers['substratum_coords'].metadata.get('substratum_coords')
     target_stack = viewer.layers['target'].data
 
@@ -224,6 +227,9 @@ def binarize(threshold, viewer: napari.Viewer):
         auto_call=True
 )
 def remove_outliers(outlier_size, viewer: napari.Viewer):
+    if 'binary' not in viewer.layers:
+        show_info("Binarize first by adjusting threshold.")
+        return
     stack = viewer.layers['binary'].data
 
     cleaned_binary = ip.rm_outliers(stack, outlier_size)
@@ -233,7 +239,7 @@ def remove_outliers(outlier_size, viewer: napari.Viewer):
 @magicgui(call_button="Confirm Binarization")
 def confirm_binarization(viewer: napari.Viewer):
     if 'binary' not in viewer.layers:
-        show_info("Binarization has to be applied first.")
+        show_info("Adjust threshold first.")
         return
     for lay in list(viewer.layers):
         if not (lay.name == "binary" or "Original" in lay.name):
@@ -258,11 +264,12 @@ setting_widgets = [ #Needs to be updated if new widgets are added
 
 @magicgui(
         call_button='Save Original & Binary',
+        file_format={"widget_type": "ComboBox", "choices": ['.nii.gz', '.nii', '.niigz', '.tif', '.tiff'], "value": ".nii.gz", "label": "File Format"},
         output_directory={"widget_type": "FileEdit", "mode": "d", "value": str(Path.home())},
         save_settings={"widget_type": "CheckBox", "text": "Save settings", "value": True},
         settings_directory={"widget_type": "FileEdit", "mode": "w", "value": str(Path.home() / "settings.json")}
 )
-def save(output_directory, save_settings, settings_directory, viewer: napari.Viewer):
+def save(file_format, output_directory, save_settings, settings_directory, viewer: napari.Viewer):
     original_layer = next((layer for layer in viewer.layers if "Original" in layer.name), None)
     if original_layer is not None:
         original_stack = original_layer.data
@@ -272,7 +279,7 @@ def save(output_directory, save_settings, settings_directory, viewer: napari.Vie
         return
     binary_stack = viewer.layers['binary'].data
 
-    if ip.save(original_stack, metadata, binary_stack, output_directory): # type: ignore
+    if (ip.get_save_fn(original_stack, metadata, file_format))(original_stack, metadata, binary_stack, output_directory): # type: ignore
         viewer.layers.clear()
         if save_settings:
             if ip.save_settings(settings_directory, handle_input.input_text.value.strip(), setting_widgets, metadata): # type: ignore
