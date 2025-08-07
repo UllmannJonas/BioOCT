@@ -330,6 +330,10 @@ def apply_loaded_settings_single(viewer: napari.Viewer):
     # Apply the settings to the current stack
     median_filter(viewer=viewer)
     roi_filter_2D(viewer=viewer)
+    locate_window(viewer=viewer)
+    zero_out_window(viewer=viewer)
+    locate_substratum(viewer=viewer)
+    zero_out_substratum(viewer=viewer)
     increase_contrast(viewer=viewer)
     binarize(viewer=viewer)
     remove_outliers(viewer=viewer)
@@ -345,6 +349,11 @@ def apply_loaded_settings_bulk(viewer:napari.Viewer):
     for filepath in filepaths:  #Sequentially load each file, apply auto labeling and save
         load_file(filepath=filepath, viewer=viewer)
         apply_loaded_settings_single(viewer=viewer)
+        show_info("Check console for user input.")
+        user_input = input(f"Continue with current settings with 'y' \nAbort with 'stop' \n")
+        if user_input.lower() == 'stop':
+            show_info("Aborted.")
+            return
         save(file_format = save.file_format.value, output_directory = save.output_directory.value, save_settings = False, settings_directory = save.settings_directory.value, viewer=viewer)
 
 @magicgui(call_button="Count Voxels")
