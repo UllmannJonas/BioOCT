@@ -50,7 +50,7 @@ def main():
     
     # Labeling Tab
     labeling_widgets = [
-        widgets.load,
+        widgets.load_button,
         widgets.median_filter,
         widgets.roi_filter_2D,
         widgets.locate_window,
@@ -72,7 +72,8 @@ def main():
 
     auto_labeling_widgets = [
         widgets.load_settings,
-        widgets.apply_loaded_settings_single
+        widgets.apply_loaded_settings_single,
+        widgets.apply_loaded_settings_bulk
     ]
     scrolltab_auto_labeling = create_scrolltab(
         widget_list=auto_labeling_widgets,

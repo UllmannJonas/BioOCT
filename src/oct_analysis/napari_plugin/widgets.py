@@ -14,13 +14,7 @@ def show_instructions():
     webbrowser.open("https://github.com/AndreasNetsch/oct_analysis")
     show_info("Instructions opened in your browser.")
 
-@magicgui(call_button="Load OCT/NIfTI/TIF")
-def load(viewer: napari.Viewer):
-    filepath, _ = QFileDialog.getOpenFileName(None, 'Select file', '', 'Format (*.oct *.nii *.nii.gz *niigz *tif *tiff)') # type: ignore
-    if not filepath:
-        show_info("No file selected.")
-        return # Abort
-    
+def load_file(filepath, viewer: napari.Viewer):
     load_fn = ip.get_load_fn(Path(filepath))
 
     stack, metadata = load_fn(Path(filepath))
@@ -42,6 +36,14 @@ def load(viewer: napari.Viewer):
     locate_substratum.ymax.value = y_max
 
     show_info(f"Loaded {metadata['filename']}")
+
+@magicgui(call_button="Load OCT/NIfTI/TIF")
+def load_button(viewer: napari.Viewer):
+    filepath, _ = QFileDialog.getOpenFileName(None, 'Select file', '', 'Format (*.oct *.nii *.nii.gz *niigz *tif *tiff)') # type: ignore
+    if not filepath:
+        show_info("No file selected.")
+        return # Abort
+    load_file(filepath, viewer)
 
 
 @magicgui(
@@ -257,6 +259,8 @@ setting_widgets = [ #Needs to be updated if new widgets are added
     handle_input,
     median_filter,
     roi_filter_2D,
+    locate_window,
+    locate_substratum,
     increase_contrast,
     binarize,
     remove_outliers
@@ -305,6 +309,12 @@ def load_settings(viewer: napari.Viewer):
     handle_input.input_text.value = user_handle
     median_filter.filter_size.value = settings.get('median_filter', {}).get('filter_size', 3)
     roi_filter_2D.roi_size.value = settings.get('roi_filter_2D', {}).get('roi_size', 5)
+    locate_window.ymin.value = settings.get('locate_window', {}).get('ymin', 0)
+    locate_window.ymax.value = settings.get('locate_window', {}).get('ymax', 100)
+    locate_window.y_offset.value = settings.get('locate_window', {}).get('y_offset', 0)
+    locate_substratum.ymin.value = settings.get('locate_substratum', {}).get('ymin', 200)
+    locate_substratum.ymax.value = settings.get('locate_substratum', {}).get('ymax', 1000)
+    locate_substratum.y_offset.value = settings.get('locate_substratum', {}).get('y_offset', 0)
     increase_contrast.percentile.value = settings.get('increase_contrast', {}).get('percentile', 0.5)
     binarize.threshold.value = settings.get('binarize', {}).get('threshold', 0.7)
     remove_outliers.outlier_size.value = settings.get('remove_outliers', {}).get('outlier_size', 2)
@@ -326,9 +336,16 @@ def apply_loaded_settings_single(viewer: napari.Viewer):
 
     show_info("Applied loaded settings to the current stack.")
 
-# @magicgui(call_button="Apply loaded settings to multiple files")
-# def apply_loaded_settings_bulk(viewer:napari.Viewer):
-#     filepath, _ = QFileDialog.getOpenFileName(None, 'Select file', '', 'Format (*.oct *.nii *.nii.gz *niigz *tif *tiff)') # type: ignore
+@magicgui(call_button="Apply loaded settings to multiple files")
+def apply_loaded_settings_bulk(viewer:napari.Viewer):
+    filepaths, _ = QFileDialog.getOpenFileNames(None, 'Select files', '', 'Format (*.oct *.nii *.nii.gz *niigz *tif *tiff)') # type: ignore
+    if not filepaths:
+        show_info("No files selected.")
+        return
+    for filepath in filepaths:  #Sequentially load each file, apply auto labeling and save
+        load_file(filepath=filepath, viewer=viewer)
+        apply_loaded_settings_single(viewer=viewer)
+        save(file_format = save.file_format.value, output_directory = save.output_directory.value, save_settings = False, settings_directory = save.settings_directory.value, viewer=viewer)
 
 @magicgui(call_button="Count Voxels")
 def count_voxels(viewer: napari.Viewer):
