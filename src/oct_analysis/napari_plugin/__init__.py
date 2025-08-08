@@ -1,42 +1,47 @@
 from oct_analysis.napari_plugin import widgets
 from qtpy.QtWidgets import QScrollArea, QWidget, QVBoxLayout, QTabWidget
 from magicgui.widgets import Container
-from magicgui import magicgui
-import json
-from pathlib import Path
+# from magicgui import magicgui
+# import json
+# from pathlib import Path
+# from magicgui import magicgui
+# import json
+# from pathlib import Path
 
 def main():
 
     # save-settings funktion. später ersetzen durch class-struktur des widgets.py inhalts
-    @magicgui(call_button="Save Settings",
-            settings_file={"widget_type": "FileEdit", "mode": "w", "value": str(Path.home() / "settings.json")}
-    )
-    def save_settings(settings_file):
-        settings = {}
-        for widget in labeling_widgets:
-            params = {}
-            # Die ursprünglichen Parameter stehen in __signature__.parameters
-            for param in widget.__signature__.parameters:
-                if param == "viewer":
-                    continue  # viewer ist nicht serialisierbar
-                w = widget.get_widget(param)
-                if w is not None:
-                    val = w.value
-                    if isinstance(val, Path):
-                        val = str(val)
-                    params[param] = val
-            settings[widget.name or widget.__class__.__name__] = params
+    # @magicgui(call_button="Save Settings",
+    #         settings_file={"widget_type": "FileEdit", "mode": "w", "value": str(Path.home() / "settings.json")}
+    # )
+    # def save_settings(settings_file):
+    #     settings = {}
 
-        with open(settings_file, "w") as f:
-            json.dump(settings, f, indent=4)
+    #     user_handle = widgets.handle_input.input_text.value.strip()
+    #     filename = f"settings_{user_handle}.json"
+    #     settings_file = Path(settings_file).parent / filename
+
+    #     for widget in labeling_widgets:
+    #         params = {}
+    #         # Die ursprünglichen Parameter stehen in __signature__.parameters
+    #         for param in widget.__signature__.parameters:
+    #             if param == "viewer":
+    #                 continue  # viewer ist nicht serialisierbar
+    #             w = widget.get_widget(param)
+    #             if w is not None:
+    #                 val = w.value
+    #                 if isinstance(val, Path):
+    #                     val = str(val)
+    #                 params[param] = val
+    #         settings[widget.name or widget.__class__.__name__] = params
+
+    #     with open(settings_file, "w") as f:
+    #         json.dump(settings, f, indent=4)
     #
 
     # Instructions Tab
     instructions_widgets = [
-        widgets.show_instructionsA,
-        widgets.show_instructionsB,
-        widgets.show_instructionsC,
-        widgets.show_instructionsD
+        widgets.show_instructions
     ]
     scrolltab_instructions = create_scrolltab(
         widget_list=instructions_widgets,
@@ -45,7 +50,7 @@ def main():
     
     # Labeling Tab
     labeling_widgets = [
-        widgets.load_oct,
+        widgets.load_button,
         widgets.median_filter,
         widgets.roi_filter_2D,
         widgets.locate_window,
@@ -56,12 +61,23 @@ def main():
         widgets.binarize,
         widgets.remove_outliers,
         widgets.confirm_binarization,
-        save_settings,
+        widgets.handle_input,
+#        save_settings,
         widgets.save
     ]
     scrolltab_labeling = create_scrolltab(
         widget_list=labeling_widgets,
         name='Labeling'
+    )
+
+    auto_labeling_widgets = [
+        widgets.load_settings,
+        widgets.apply_loaded_settings_single,
+        widgets.apply_loaded_settings_bulk
+    ]
+    scrolltab_auto_labeling = create_scrolltab(
+        widget_list=auto_labeling_widgets,
+        name='Auto Labeling'
     )
 
     # Post-Processing Tab
@@ -77,6 +93,7 @@ def main():
     tabs = QTabWidget()
     tabs.addTab(scrolltab_instructions, "Instructions")
     tabs.addTab(scrolltab_labeling, "Labeling")
+    tabs.addTab(scrolltab_auto_labeling, "Auto Labeling")
     tabs.addTab(scrolltab_post, "Post-Processing")
 
     return tabs

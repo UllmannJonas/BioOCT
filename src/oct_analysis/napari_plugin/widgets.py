@@ -1,73 +1,23 @@
+from cProfile import label
 from magicgui import magicgui
 import napari
 from napari.utils.notifications import show_info
 import numpy as np
 from qtpy.QtWidgets import QFileDialog
 from pathlib import Path
+import webbrowser
 
 from oct_analysis.octools import processing_functions as ip
 
-@magicgui(call_button="Show Instructions (1/4)")
-def show_instructionsA():
-    instructionsA = (
-        "<b>OCT Labeling Workflow:</b><br><br>"
+@magicgui(call_button="Open Instructions")
+def show_instructions():
+    webbrowser.open("https://github.com/AndreasNetsch/oct_analysis")
+    show_info("Instructions opened in your browser.")
 
-        "<b>1. Load & Normalize</b><br>"
-        "• Click <i>Load OCT</i> to open a .oct file<br>"
-        "• This creates a hidden raw layer and a target (normalized) image layer<br><br>"
+def load_file(filepath, viewer: napari.Viewer):
+    load_fn = ip.get_load_fn(Path(filepath))
 
-        "<b>2. Preprocessing</b><br>"
-        "• Apply <i>Median Filter</i> to smoothen noise but preserve edges<br>"
-        "• Apply <i>ROI 2D Filter</i> to enhance detection of horizontal edges<br><br>"
-    )
-
-    show_info(instructionsA)
-
-@magicgui(call_button="Show Instructions (2/4)")
-def show_instructionsB():
-    instructionsB = (
-        "<b>3. Window/Substratum Detection</b><br>"
-        "• Use <i>Locate Window</i> to find window coordinates<br>"
-        "• Click <i>Zero Out Window</i> to mask it<br>"
-        "• Use <i>Locate Substratum</i> to detect the substratum<br>"
-        "• Click <i>Zero Out Substratum</i> to mask it<br>"
-        "-> Internally, the coordinates are located using the 'edge_enhanced' layer<br>"
-        "-> The masking is then applied to the median_filtered layer (important for binarization later)"
-    )
-
-    show_info(instructionsB)
-
-@magicgui(call_button="Show Instructions (3/4)")
-def show_instructionsC():
-    instructionsC = (
-        "<b>4. Postprocessing</b><br>"
-        "• Use <i>Increase Contrast</i> to improve binarization accuracy<br>"
-        "• Adjust <i>Threshold</i> to binarize. Changing the value auto-calls the binarize-function<br>"
-        "-> The threshold is calculated on the masked median_filtered layer (no_substratum). Zero-values are ignored<br>"
-        "• Optionally use <i>Remove Outliers</i> to clean up biofilm signal in the background noise (also auto-called)<br><br>"
-    )
-
-    show_info(instructionsC)
-
-@magicgui(call_button="Show Instructions (4/4)")
-def show_instructionsD():
-    instructionsD = (
-        "<b>5. Save</b><br>"
-        "• Use <i>Save stack+mask_stack</i> to export original & binary layers as .nii.gz files<br>"
-        "• Use <i>Save Settings</i> to export a JSON file of the current settings of all user-set values"
-    )
-
-    show_info(instructionsD)
-
-
-@magicgui(call_button="Load OCT")
-def load_oct(viewer: napari.Viewer):
-    filepath, _ = QFileDialog.getOpenFileName(None, 'Select OCT file', '', 'OCT files (*.oct *.nii *.nii.gz)') # type: ignore
-    if not filepath:
-        show_info("No file selected.")
-        return # Abbrechen
-    
-    stack, metadata = ip.load_oct(Path(filepath)) # type: ignore
+    stack, metadata = load_fn(Path(filepath))
 
     if stack is not None:   #If file is loaded correctly
         viewer.layers.clear()   #Clear existing layers to prevent duplicate naming (i.g. normalized[1])
@@ -86,6 +36,14 @@ def load_oct(viewer: napari.Viewer):
     locate_substratum.ymax.value = y_max
 
     show_info(f"Loaded {metadata['filename']}")
+
+@magicgui(call_button="Load OCT/NIfTI/TIF")
+def load_button(viewer: napari.Viewer):
+    filepath, _ = QFileDialog.getOpenFileName(None, 'Select file', '', 'Format (*.oct *.nii *.nii.gz *niigz *tif *tiff)') # type: ignore
+    if not filepath:
+        show_info("No file selected.")
+        return # Abort
+    load_file(filepath, viewer)
 
 
 @magicgui(
@@ -111,6 +69,12 @@ def median_filter(filter_size, viewer: napari.Viewer):
             roi_size={"widget_type": "SpinBox", "min": 1, "max": 21, "step": 2, "value": 5, "label": "Filter Size"}
 )
 def roi_filter_2D(roi_size, viewer: napari.Viewer):
+    if 'target' not in viewer.layers:
+        show_info("Median Filter has to be applied first.")
+        return
+    if 'target' not in viewer.layers:
+        show_info("Median Filter has to be applied first.")
+        return
     
     stack = viewer.layers['target'].data
 
@@ -196,6 +160,9 @@ def zero_out_substratum(viewer: napari.Viewer):
     if 'target' not in viewer.layers:
         show_info("Create target layer first.")
         return
+    if 'substratum_coords' not in viewer.layers:
+        show_info("Substratum has to be located first.")
+        return
     substratum_coords = viewer.layers['substratum_coords'].metadata.get('substratum_coords')
     target_stack = viewer.layers['target'].data
 
@@ -262,6 +229,9 @@ def binarize(threshold, viewer: napari.Viewer):
         auto_call=True
 )
 def remove_outliers(outlier_size, viewer: napari.Viewer):
+    if 'binary' not in viewer.layers:
+        show_info("Binarize first by adjusting threshold.")
+        return
     stack = viewer.layers['binary'].data
 
     cleaned_binary = ip.rm_outliers(stack, outlier_size)
@@ -270,15 +240,40 @@ def remove_outliers(outlier_size, viewer: napari.Viewer):
 
 @magicgui(call_button="Confirm Binarization")
 def confirm_binarization(viewer: napari.Viewer):
+    if 'binary' not in viewer.layers:
+        show_info("Adjust threshold first.")
+        return
     for lay in list(viewer.layers):
         if not (lay.name == "binary" or "Original" in lay.name):
             viewer.layers.remove(lay)
 
 @magicgui(
-        call_button='Save Original & Binary',
-        output_directory={"widget_type": "FileEdit", "mode": "d", "value": str(Path.home())}
+    input_text={'widget_type': 'LineEdit', 'label': 'User handle'},
+    auto_call=True  # Funktion wird bei jeder Änderung aufgerufen
 )
-def save(output_directory, viewer: napari.Viewer):
+def handle_input(input_text: str):
+    return input_text
+
+
+setting_widgets = [ #Needs to be updated if new widgets are added
+    handle_input,
+    median_filter,
+    roi_filter_2D,
+    locate_window,
+    locate_substratum,
+    increase_contrast,
+    binarize,
+    remove_outliers
+]
+
+@magicgui(
+        call_button='Save Original & Binary',
+        file_format={"widget_type": "ComboBox", "choices": ['.nii.gz', '.nii', '.niigz', '.tif', '.tiff'], "value": ".nii.gz", "label": "File Format"},
+        output_directory={"widget_type": "FileEdit", "mode": "d", "value": str(Path.home())},
+        save_settings={"widget_type": "CheckBox", "text": "Save settings", "value": True},
+        settings_directory={"widget_type": "FileEdit", "mode": "w", "value": str(Path.home() / "settings.json")}
+)
+def save(file_format, output_directory, save_settings, settings_directory, viewer: napari.Viewer):
     original_layer = next((layer for layer in viewer.layers if "Original" in layer.name), None)
     if original_layer is not None:
         original_stack = original_layer.data
@@ -288,9 +283,78 @@ def save(output_directory, viewer: napari.Viewer):
         return
     binary_stack = viewer.layers['binary'].data
 
-    if ip.save(original_stack, metadata, binary_stack, output_directory): # type: ignore
+    if (ip.get_save_fn(original_stack, metadata, file_format))(original_stack, metadata, binary_stack, output_directory): # type: ignore
         viewer.layers.clear()
-        show_info(f"Saved stack and binary mask to {output_directory}")
+        if save_settings:
+            if ip.save_settings(settings_directory, handle_input.input_text.value.strip(), setting_widgets, metadata): # type: ignore
+                show_info(f"Saved stack and binary mask to {output_directory} and settings to {settings_directory}")
+        else:
+            show_info(f"Saved stack and binary mask to {output_directory})")
+
+
+@magicgui(call_button="Load settings.json")
+def load_settings(viewer: napari.Viewer):
+    filepath, _ = QFileDialog.getOpenFileName(None, 'Select file', '', 'Format (*.json)') # type: ignore
+    if not filepath:
+        show_info("No file selected.")
+        return # Abort
+    
+    settings = ip.load_settings(Path(filepath))
+    if not settings:
+        show_info("No valid settings found in the file.")
+        return
+
+    # Update the widgets with the loaded settings
+    user_handle = settings.get('handle_input', {}).get('input_text', '')
+    handle_input.input_text.value = user_handle
+    median_filter.filter_size.value = settings.get('median_filter', {}).get('filter_size', 3)
+    roi_filter_2D.roi_size.value = settings.get('roi_filter_2D', {}).get('roi_size', 5)
+    locate_window.ymin.value = settings.get('locate_window', {}).get('ymin', 0)
+    locate_window.ymax.value = settings.get('locate_window', {}).get('ymax', 100)
+    locate_window.y_offset.value = settings.get('locate_window', {}).get('y_offset', 0)
+    locate_substratum.ymin.value = settings.get('locate_substratum', {}).get('ymin', 200)
+    locate_substratum.ymax.value = settings.get('locate_substratum', {}).get('ymax', 1000)
+    locate_substratum.y_offset.value = settings.get('locate_substratum', {}).get('y_offset', 0)
+    increase_contrast.percentile.value = settings.get('increase_contrast', {}).get('percentile', 0.5)
+    binarize.threshold.value = settings.get('binarize', {}).get('threshold', 0.7)
+    remove_outliers.outlier_size.value = settings.get('remove_outliers', {}).get('outlier_size', 2)
+
+    show_info(f"Loaded settings from {filepath} for user {user_handle}")
+
+@magicgui(call_button="Apply loaded settings to current stack")
+def apply_loaded_settings_single(viewer: napari.Viewer):
+    if 'base' not in viewer.layers:
+        show_info("Load an OCT file first.")
+        return
+
+    # Apply the settings to the current stack
+    median_filter(viewer=viewer)
+    roi_filter_2D(viewer=viewer)
+    locate_window(viewer=viewer)
+    zero_out_window(viewer=viewer)
+    locate_substratum(viewer=viewer)
+    zero_out_substratum(viewer=viewer)
+    increase_contrast(viewer=viewer)
+    binarize(viewer=viewer)
+    remove_outliers(viewer=viewer)
+
+    show_info("Applied loaded settings to the current stack.")
+
+@magicgui(call_button="Apply loaded settings to multiple files")
+def apply_loaded_settings_bulk(viewer:napari.Viewer):
+    filepaths, _ = QFileDialog.getOpenFileNames(None, 'Select files', '', 'Format (*.oct *.nii *.nii.gz *niigz *tif *tiff)') # type: ignore
+    if not filepaths:
+        show_info("No files selected.")
+        return
+    for filepath in filepaths:  #Sequentially load each file, apply auto labeling and save
+        load_file(filepath=filepath, viewer=viewer)
+        apply_loaded_settings_single(viewer=viewer)
+        show_info("Check console for user input.")
+        user_input = input(f"Continue with current settings with 'y' \nAbort with 'stop' \n")
+        if user_input.lower() == 'stop':
+            show_info("Aborted.")
+            return
+        save(file_format = save.file_format.value, output_directory = save.output_directory.value, save_settings = False, settings_directory = save.settings_directory.value, viewer=viewer)
 
 @magicgui(call_button="Count Voxels")
 def count_voxels(viewer: napari.Viewer):
