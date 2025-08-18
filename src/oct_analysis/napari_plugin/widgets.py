@@ -222,7 +222,7 @@ def binarize(threshold, viewer: napari.Viewer):
         lay.visible = False
     viewer.layers['binary'].visible = True
     viewer.layers['binary'].opacity = 0.5
-    viewer.layers['base'].visible = True
+    viewer.layers['bin_base'].visible = True
 
 @magicgui(
         outlier_size={'widget_type': 'SpinBox', 'min': 0, 'max': 100, 'step': 1, 'value': 2, 'label': 'Outlier Size'},
@@ -271,7 +271,7 @@ setting_widgets = [ #Needs to be updated if new widgets are added
         file_format={"widget_type": "ComboBox", "choices": ['.nii.gz', '.nii', '.niigz', '.tif', '.tiff'], "value": ".nii.gz", "label": "File Format"},
         output_directory={"widget_type": "FileEdit", "mode": "d", "value": str(Path.home())},
         save_settings={"widget_type": "CheckBox", "text": "Save settings", "value": True},
-        settings_directory={"widget_type": "FileEdit", "mode": "w", "value": str(Path.home() / "settings.json")}
+        settings_directory={"widget_type": "FileEdit", "mode": "d", "value": str(Path.home())}
 )
 def save(file_format, output_directory, save_settings, settings_directory, viewer: napari.Viewer):
     original_layer = next((layer for layer in viewer.layers if "Original" in layer.name), None)

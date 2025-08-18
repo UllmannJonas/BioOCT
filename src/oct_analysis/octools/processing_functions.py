@@ -1040,7 +1040,7 @@ def save_settings(settings_file, user_handle: str, setting_widgets: list, stack_
     image_id = match.group(1) if match else "unknown"   #Read image ID from filename, e.g. "Mina_0054_Mode3D.oct" -> "0054"
 
     filename = f"settings_{image_id}_{user_handle}.json"
-    settings_file = Path(settings_file).parent / filename
+    settings_file = Path(settings_file) / filename
 
     for widget in setting_widgets:
         params = {}
@@ -1074,7 +1074,7 @@ def roi_filter_2D(stack: np.ndarray, roi_size: int) -> np.ndarray:
 
 def locate_window(stack: np.ndarray, ymin: int, ymax: int, y_offset: int) -> np.ndarray:
     y_coords = np.argmax(stack[:, ymin:ymax, :], axis=1)
-    y_coords += y_offset
+    y_coords += y_offset + ymin
 
     return y_coords
 
