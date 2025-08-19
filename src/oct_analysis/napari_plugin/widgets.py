@@ -31,7 +31,10 @@ def load_file(filepath, viewer: napari.Viewer):
     stack_norm = ip._normalize(stack)
     viewer.add_image(stack_norm, name='base', visible=True)
 
-    y_max = metadata.get('size_px', {}).get('z', 1000) -1 # Update maximum slider values with the actual size of the OCT images
+    #Napari X, Y and Z axes do not correspond to X, Y and Z axes of the OCT file!
+    x_max = metadata.get('size_px', {}).get('y', 1000) -1 # Update maximum slider values with the actual size of the OCT images
+    ignore_slices.xend.max = x_max
+    y_max = metadata.get('size_px', {}).get('z', 1000) -1
     locate_window.ymin.max = y_max -1
     locate_window.ymax.max = y_max
     locate_substratum.ymin.max = y_max -1
@@ -56,6 +59,33 @@ def load_button(viewer: napari.Viewer):
     save_config(_config)
     load_file(filepath, viewer)
 
+@magicgui(
+    call_button="Ignore Slices",
+    xstart={"widget_type": "SpinBox", "min": 0, "max": 1000, "step": 1, "value": 0, "label": "First Slice"},
+    xend={"widget_type": "SpinBox", "min": 0, "max": 1000, "step": 1, "value": 1000, "label": "Last Slice"},
+    #slice={'widget_type': 'LineEdit', 'label': 'Input slice number to ignore'}
+)
+def ignore_slices(xstart, xend, viewer: napari.Viewer):
+    if 'base' not in viewer.layers:
+        show_info("OCT File has to be loaded.")
+        return
+    
+    if 'base_reduced' in viewer.layers:
+        stack = viewer.layers['base_reduced'].data #allow repeated ignore_slices calls
+    else:
+        stack = viewer.layers['base'].data
+
+    if xstart > xend or xend > stack.shape[0]:
+        show_info("Invalid slice range.")
+        return
+    
+    slices = list(range(xstart, xend + 1))
+    modified_stack = ip.zero_out_ignored_slices(stack, slices)
+
+    if 'base_reduced' in viewer.layers:
+        viewer.layers['base_reduced'].data = modified_stack
+    else:
+        viewer.add_image(modified_stack, name='base_reduced', visible=True)
 
 @magicgui(
             call_button="Apply Median Filter",
@@ -65,8 +95,11 @@ def median_filter(filter_size, viewer: napari.Viewer):
     if 'base' not in viewer.layers:
         show_info("OCT File has to be loaded.")
         return
-
-    stack = viewer.layers['base'].data
+    
+    if 'base_reduced' in viewer.layers:
+        stack = viewer.layers['base_reduced'].data
+    else:
+        stack = viewer.layers['base'].data
 
     median_filtered = ip.median_blur(stack, filter_size)
 

@@ -1066,6 +1066,17 @@ def save_settings(settings_file, user_handle: str, setting_widgets: list, stack_
 
 # Labeling-Functions
 ## processing functions
+def zero_out_ignored_slices(stack: np.ndarray, ignored_slices: list[int]) -> np.ndarray:
+    if not isinstance(ignored_slices, list):
+        raise TypeError("ignored_slices must be a list of integers.")
+    
+    if not all(isinstance(i, int) for i in ignored_slices):
+        raise ValueError("All elements in ignored_slices must be integers.")
+
+    copy = stack.copy()
+    copy[ignored_slices, :, :] = 0  # Zero out specified slices
+    return copy
+
 def median_blur(stack: np.ndarray, filter_size: int) -> np.ndarray:
     return scipy.ndimage.median_filter(stack, size=(1, filter_size, filter_size)) # filterplane=2D (xz), not filtering depth (y) since it's anistropic to xz
 

@@ -51,6 +51,7 @@ def main():
     # Labeling Tab
     labeling_widgets = [
         widgets.load_button,
+        widgets.ignore_slices,
         widgets.median_filter,
         widgets.roi_filter_2D,
         widgets.locate_window,
