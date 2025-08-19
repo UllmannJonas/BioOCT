@@ -85,7 +85,7 @@ def ignore_slices(xstart, xend, viewer: napari.Viewer):
     if 'base_reduced' in viewer.layers:
         viewer.layers['base_reduced'].data = modified_stack
     else:
-        viewer.add_image(modified_stack, name='base_reduced', visible=True)
+        viewer.add_image(modified_stack, name='base_reduced', visible=False)
 
 @magicgui(
             call_button="Apply Median Filter",
