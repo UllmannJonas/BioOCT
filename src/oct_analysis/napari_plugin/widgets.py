@@ -7,7 +7,10 @@ from qtpy.QtWidgets import QFileDialog
 from pathlib import Path
 import webbrowser
 
+from .config import load_config, save_config
 from oct_analysis.octools import processing_functions as ip
+
+_config = load_config() #Load directory paths
 
 @magicgui(call_button="Open Instructions")
 def show_instructions():
@@ -39,10 +42,18 @@ def load_file(filepath, viewer: napari.Viewer):
 
 @magicgui(call_button="Load OCT/NIfTI/TIF")
 def load_button(viewer: napari.Viewer):
-    filepath, _ = QFileDialog.getOpenFileName(None, 'Select file', '', 'Format (*.oct *.nii *.nii.gz *niigz *tif *tiff)') # type: ignore
+    filepath, _ = QFileDialog.getOpenFileName(
+        None,
+        'Select file',
+        _config.get("load_directory"),
+        'Format (*.oct *.nii *.nii.gz *niigz *tif *tiff)'
+        ) # type: ignore
     if not filepath:
         show_info("No file selected.")
         return # Abort
+    
+    _config["load_directory"] = str(Path(filepath).parent)
+    save_config(_config)
     load_file(filepath, viewer)
 
 
@@ -294,7 +305,16 @@ def save(file_format, output_directory, save_settings, settings_directory, viewe
 
 @magicgui(call_button="Load settings.json")
 def load_settings(viewer: napari.Viewer):
-    filepath, _ = QFileDialog.getOpenFileName(None, 'Select file', '', 'Format (*.json)') # type: ignore
+    if 'base' not in viewer.layers:
+        show_info("OCT File has to be loaded.")
+        return
+
+    filepath, _ = QFileDialog.getOpenFileName(
+        None,
+        'Select file',
+        _config.get("settings_directory"),
+        'Format (*.json)'
+        ) # type: ignore
     if not filepath:
         show_info("No file selected.")
         return # Abort
@@ -319,9 +339,11 @@ def load_settings(viewer: napari.Viewer):
     binarize.threshold.value = settings.get('binarize', {}).get('threshold', 0.7)
     remove_outliers.outlier_size.value = settings.get('remove_outliers', {}).get('outlier_size', 2)
 
+    _config["settings_directory"] = str(Path(filepath).parent)
+    save_config(_config)
     show_info(f"Loaded settings from {filepath} for user {user_handle}")
 
-@magicgui(call_button="Apply loaded settings to current stack")
+@magicgui(call_button="Apply current settings to current stack")
 def apply_loaded_settings_single(viewer: napari.Viewer):
     if 'base' not in viewer.layers:
         show_info("Load an OCT file first.")
@@ -340,7 +362,7 @@ def apply_loaded_settings_single(viewer: napari.Viewer):
 
     show_info("Applied loaded settings to the current stack.")
 
-@magicgui(call_button="Apply loaded settings to multiple files")
+@magicgui(call_button="Apply current settings to multiple files")
 def apply_loaded_settings_bulk(viewer:napari.Viewer):
     filepaths, _ = QFileDialog.getOpenFileNames(None, 'Select files', '', 'Format (*.oct *.nii *.nii.gz *niigz *tif *tiff)') # type: ignore
     if not filepaths:
