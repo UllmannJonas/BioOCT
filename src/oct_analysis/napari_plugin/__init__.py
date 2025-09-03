@@ -47,21 +47,31 @@ def main():
         widget_list=instructions_widgets,
         name='Instructions'
     )
-    
-    # Labeling Tab
-    labeling_widgets = [
+
+    #Pre-Processing Tab
+    pre_widgets = [
         widgets.load_button,
         widgets.ignore_slices,
         widgets.median_filter,
         widgets.roi_filter_2D,
         widgets.locate_window,
-        widgets.zero_out_window,
+        widgets.zero_out_window
+    ]
+    scrolltab_pre = create_scrolltab(
+        widget_list=pre_widgets,
+        name='Pre-Processing'
+    )
+
+    # Labeling Tab
+    labeling_widgets = [
         widgets.locate_substratum,
         widgets.zero_out_substratum,
         widgets.increase_contrast,
         widgets.binarize,
         widgets.remove_outliers,
         widgets.confirm_binarization,
+        widgets.load_settings,
+        widgets.apply_loaded_settings_single,
         widgets.handle_input,
 #        save_settings,
         widgets.save
@@ -69,16 +79,6 @@ def main():
     scrolltab_labeling = create_scrolltab(
         widget_list=labeling_widgets,
         name='Labeling'
-    )
-
-    auto_labeling_widgets = [
-        widgets.load_settings,
-        widgets.apply_loaded_settings_single,
-        widgets.apply_loaded_settings_bulk
-    ]
-    scrolltab_auto_labeling = create_scrolltab(
-        widget_list=auto_labeling_widgets,
-        name='Auto Labeling'
     )
 
     # Post-Processing Tab
@@ -93,8 +93,8 @@ def main():
     # Merge Tabs
     tabs = QTabWidget()
     tabs.addTab(scrolltab_instructions, "Instructions")
+    tabs.addTab(scrolltab_pre, "Pre-Processing")
     tabs.addTab(scrolltab_labeling, "Labeling")
-    tabs.addTab(scrolltab_auto_labeling, "Auto Labeling")
     tabs.addTab(scrolltab_post, "Post-Processing")
 
     return tabs

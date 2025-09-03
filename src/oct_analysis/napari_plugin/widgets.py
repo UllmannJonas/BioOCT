@@ -66,14 +66,15 @@ def load_button(viewer: napari.Viewer):
     #slice={'widget_type': 'LineEdit', 'label': 'Input slice number to ignore'}
 )
 def ignore_slices(xstart, xend, viewer: napari.Viewer):
-    if 'base' not in viewer.layers:
+    if 'target' in viewer.layers: #Use target layer if available
+        stack = viewer.layers['target'].data
+    elif 'base_reduced' in viewer.layers: #Use stack with ignored slices if available
+        stack = viewer.layers['base_reduced'].data
+    elif 'base' in viewer.layers:
+        stack = viewer.layers['base'].data
+    else:
         show_info("OCT File has to be loaded.")
         return
-    
-    if 'base_reduced' in viewer.layers:
-        stack = viewer.layers['base_reduced'].data #allow repeated ignore_slices calls
-    else:
-        stack = viewer.layers['base'].data
 
     if xstart > xend or xend > stack.shape[0]:
         show_info("Invalid slice range.")
@@ -92,14 +93,15 @@ def ignore_slices(xstart, xend, viewer: napari.Viewer):
             filter_size={"widget_type": "SpinBox", "min": 1, "max": 7, "step": 2, "value": 3, "label": "Filter Size"}
     )
 def median_filter(filter_size, viewer: napari.Viewer):
-    if 'base' not in viewer.layers:
+    if 'target' in viewer.layers: #Use target layer if available
+        stack = viewer.layers['target'].data
+    elif 'base_reduced' in viewer.layers: #Use stack with ignored slices if available
+        stack = viewer.layers['base_reduced'].data
+    elif 'base' in viewer.layers:
+        stack = viewer.layers['base'].data
+    else:
         show_info("OCT File has to be loaded.")
         return
-    
-    if 'base_reduced' in viewer.layers:
-        stack = viewer.layers['base_reduced'].data
-    else:
-        stack = viewer.layers['base'].data
 
     median_filtered = ip.median_blur(stack, filter_size)
 
@@ -108,20 +110,24 @@ def median_filter(filter_size, viewer: napari.Viewer):
     else:
         viewer.add_image(median_filtered, name='target', visible=True)
 
+    if 'bin_base' in viewer.layers:
+        show_info("Target layer updated. Reapply >>Zero Out Substratum<< to update bin_base layer.")
+
 
 @magicgui(call_button="Enhance horizontal Edges",
             roi_size={"widget_type": "SpinBox", "min": 1, "max": 21, "step": 2, "value": 5, "label": "Filter Size"}
 )
 def roi_filter_2D(roi_size, viewer: napari.Viewer):
-    if 'target' not in viewer.layers:
-        show_info("Median Filter has to be applied first.")
-        return
-    if 'target' not in viewer.layers:
-        show_info("Median Filter has to be applied first.")
+    if 'target' in viewer.layers: #Use target layer if available
+        stack = viewer.layers['target'].data
+    elif 'base_reduced' in viewer.layers: #Use stack with ignored slices if available
+        stack = viewer.layers['base_reduced'].data
+    elif 'base' in viewer.layers:
+        stack = viewer.layers['base'].data
+    else:
+        show_info("OCT File has to be loaded.")
         return
     
-    stack = viewer.layers['target'].data
-
     edge_enhanced = ip.roi_filter_2D(stack, roi_size)
 
     if 'edge_enhanced' in viewer.layers:
@@ -135,14 +141,20 @@ def roi_filter_2D(roi_size, viewer: napari.Viewer):
             y_offset={"widget_type": "SpinBox", "min": -100, "max": 100, "step": 1, "value": 0}
 )
 def locate_window(ymin, ymax, y_offset, viewer: napari.Viewer):
-    if 'edge_enhanced' not in viewer.layers:
-        show_info("ROI filter has to be applied first.")
+    if 'target' in viewer.layers: #Use target layer if available
+        working_stack = viewer.layers['target'].data
+    elif 'base_reduced' in viewer.layers: #Use stack with ignored slices if available
+        working_stack = viewer.layers['base_reduced'].data
+    elif 'base' in viewer.layers:
+        working_stack = viewer.layers['base'].data
+    else:
+        show_info("OCT File has to be loaded.")
         return
+    
     if ymin >= ymax:
         show_info("ymin must be less than ymax.")
         return
     
-    working_stack = viewer.layers['edge_enhanced'].data
     reference_stack = viewer.layers['base'].data
 
     window_coords = ip.locate_window(working_stack, ymin, ymax, y_offset)
@@ -162,12 +174,26 @@ def zero_out_window(viewer: napari.Viewer):
         show_info("Window has to be located first.")
         return
     window_coords = viewer.layers['window_coords'].metadata.get('window_coords')
-    target_stack = viewer.layers['target'].data
+    
+    if 'target' in viewer.layers: #Use target layer if available
+        target_stack = viewer.layers['target'].data
+    elif 'base_reduced' in viewer.layers: #Use stack with ignored slices if available
+        target_stack = viewer.layers['base_reduced'].data
+    elif 'base' in viewer.layers:
+        target_stack = viewer.layers['base'].data
+    else:
+        show_info("OCT File has to be loaded.")
+        return
 
     no_window = ip.zero_out_window(target_stack, window_coords) # type: ignore
 
+    if 'target' in viewer.layers:
+        viewer.layers['target'].data = no_window
+    else:
+        viewer.add_image(no_window, name='target', visible=True)
 
-    viewer.layers['target'].data = no_window
+    if 'bin_base' in viewer.layers:
+        show_info("Target layer updated. Reapply >>Zero Out Substratum<< to update bin_base layer.")
 
     coords_layer = viewer.layers['window_coords']
     viewer.layers.remove(coords_layer)
@@ -201,23 +227,30 @@ def locate_substratum(ymin, ymax, y_offset, viewer: napari.Viewer):
 
 @magicgui(call_button="Zero Out Substratum")
 def zero_out_substratum(viewer: napari.Viewer):
-    if 'target' not in viewer.layers:
-        show_info("Create target layer first.")
-        return
     if 'substratum_coords' not in viewer.layers:
         show_info("Substratum has to be located first.")
         return
     substratum_coords = viewer.layers['substratum_coords'].metadata.get('substratum_coords')
-    target_stack = viewer.layers['target'].data
+    if 'target' in viewer.layers: #Use target layer if available
+        target_stack = viewer.layers['target'].data
+    elif 'base_reduced' in viewer.layers: #Use stack with ignored slices if available
+        target_stack = viewer.layers['base_reduced'].data
+    elif 'base' in viewer.layers:
+        target_stack = viewer.layers['base'].data  
+    else:
+        show_info("OCT File has to be loaded.")
+        return
 
     no_substratum = ip.zero_out_substratum(target_stack, substratum_coords) # type: ignore
 
-    viewer.layers['target'].data = no_substratum
+    if 'bin_base' in viewer.layers:
+        viewer.layers['bin_base'].data = no_substratum
+    else:
+        viewer.add_image(no_substratum, name='bin_base', visible=True)
 
-    coords_layer = viewer.layers['substratum_coords']
-    edge_enhanced_layer = viewer.layers['edge_enhanced']
-    viewer.layers.remove(coords_layer)
-    viewer.layers.remove(edge_enhanced_layer)
+    if 'edge_enhanced' in viewer.layers:
+        edge_enhanced_layer = viewer.layers['edge_enhanced']
+        viewer.layers.remove(edge_enhanced_layer)
 
 @magicgui(call_button="Increase contrast",
     percentile={"widget_type": "FloatSpinBox", "min": 0.0, "max": 10.0, "step": 0.1, "value": 0.5},
@@ -265,7 +298,7 @@ def binarize(threshold, viewer: napari.Viewer):
     for lay in viewer.layers:
         lay.visible = False
     viewer.layers['binary'].visible = True
-    viewer.layers['binary'].opacity = 0.5
+    viewer.layers['binary'].opacity = 0.8
     viewer.layers['bin_base'].visible = True
 
 @magicgui(
