@@ -1,10 +1,9 @@
 # How to Use the Napari Plugin
 
-## Opeing Napari + Plugin
+## Opening Napari + Plugin
 
 1. Set up the installation as described >[here](INSTALL.md)<.
-2. (a) Activate your virtual environment. Then type `napari`
-2. (b) You can also double-click on the `run_napari_win.bat` file.
+2. Activate your virtual environment. Then type `napari`
 3. Napari will open (first time after installing can take some time, due to python files getting compiled).
 4. In napari, click on `Plugins` (at the top), choose OCTool.
 5. On the right, the plugins widgets will appear
