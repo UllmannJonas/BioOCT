@@ -19,6 +19,8 @@ from napari.utils.notifications import show_info
 from napari.utils.notifications import show_error
 import json
 import re
+from typing import cast
+
 
 def save_results_to_csv(output_folder, headers, data):
     """
@@ -49,7 +51,7 @@ def save_results_to_csv(output_folder, headers, data):
     file_exists = os.path.isfile(csv_file_path)
 
     # Open the CSV file in append mode
-    with open(csv_file_path, mode='a', newline='') as csvfile:
+    with open(csv_file_path, mode="a", newline="") as csvfile:
         writer = csv.writer(csvfile)
 
         # Write the header if the file is being created for the first time
@@ -58,6 +60,7 @@ def save_results_to_csv(output_folder, headers, data):
 
         # Write the data row
         writer.writerow(data)
+
 
 # Pre-Processing functions
 def find_two_point_line(img, x1=0, x2=None, thres_line=1):
@@ -97,7 +100,7 @@ def find_two_point_line(img, x1=0, x2=None, thres_line=1):
     def find_y_coordinate(slice_img, x):
         """Find the y-coordinate where the intensity exceeds threshold."""
         profile = slice_img[:, x]
-        for y in range(len(profile)-1, -1, -1):
+        for y in range(len(profile) - 1, -1, -1):
             if profile[y] >= thres_line:
                 return y
         return 0
@@ -127,18 +130,19 @@ def find_two_point_line(img, x1=0, x2=None, thres_line=1):
     # Process each slice
     for s in range(slices):
         current_slice = img_with_lines[s]
-        
+
         # Find y-coordinates for both points
         y1 = find_y_coordinate(current_slice, x1)
         y2 = find_y_coordinate(current_slice, x2)
-        
+
         # Store line coordinates
         line_coords.append((x1, y1, x2, y2))
-        
+
         # Draw the line on the current slice
         draw_line(current_slice, x1, y1, x2, y2)
 
     return img_with_lines, line_coords
+
 
 def find_max_zero(img, top_crop):
     """
@@ -169,7 +173,7 @@ def find_max_zero(img, top_crop):
         # Loop through each pixel column (x) in the slice
         for x in range(w):
             profile = slice_img[:, x]
-            
+
             # Find the first non-zero pixel
             non_zero_idx = np.where(profile > 0)[0]
             if len(non_zero_idx) > 0:
@@ -179,15 +183,16 @@ def find_max_zero(img, top_crop):
 
     # Add the additional top_crop to the number of rows to remove
     rows_to_remove = max_zero_pixels + top_crop
-    
+
     # Ensure we don't remove more rows than the image height
-    rows_to_remove = min(rows_to_remove, h-1)
-    
+    rows_to_remove = min(rows_to_remove, h - 1)
+
     # Remove the rows from the top
     if rows_to_remove > 0:
         img = img[:, rows_to_remove:, :]
-    
+
     return img
+
 
 def untilt(img, thres, y_offset, top_crop):
     """
@@ -221,49 +226,52 @@ def untilt(img, thres, y_offset, top_crop):
         # Loop through each pixel column (x) in the slice
         for x in range(w):
             profile = slice_img[:, x]
-            
+
             # Find the first pixel that exceeds the threshold
             first_pixel_idx = np.where(profile > thres)[0]
-            
+
             if len(first_pixel_idx) > 0:
                 first_pixel_idx = first_pixel_idx[0]
                 # Get all pixels from the first threshold-exceeding pixel to the end
                 non_zero_pixels = profile[first_pixel_idx:]
                 # Move these pixels to the top of the column, rest remains 0
-                new_img_array[s, :len(non_zero_pixels), x] = non_zero_pixels
+                new_img_array[s, : len(non_zero_pixels), x] = non_zero_pixels
                 # The rest of the column is already 0 from np.zeros_like
 
     img = new_img_array[:, ::-1, :]
-    
+
     # Ensure we don't crop more than the image height
-    y_offset = min(y_offset, h-1)
+    y_offset = min(y_offset, h - 1)
     if y_offset > 0:
         img = img[:, :-y_offset, :]
-    
+
     img = find_max_zero(img, top_crop)
-    
+
     # Final check to ensure we have a valid image
     if img.size == 0 or any(dim == 0 for dim in img.shape):
-        raise ValueError("Untilt operation resulted in zero-size array. Check threshold and crop parameters.")
-        
+        raise ValueError(
+            "Untilt operation resulted in zero-size array. Check threshold and crop parameters."
+        )
+
     return img
+
 
 # untested vectorized version of untilt
 def vectorized_untilt(stack: np.ndarray, substratum_coords: np.ndarray) -> np.ndarray:
     _, y, x = stack.shape
     result = np.empty_like(stack)
 
-    y_subs = substratum_coords[:, np.newaxis, :] # transpose coords for broadcasting
-    y_range = np.arange(y).reshape(1, y, 1) # y-axis as array for broadcasting
+    y_subs = substratum_coords[:, np.newaxis, :]  # transpose coords for broadcasting
+    y_range = np.arange(y).reshape(1, y, 1)  # y-axis as array for broadcasting
 
-    keep_mask = y_range < y_subs # boolmask: True=Substratum
-    zeros_below = ~keep_mask # boolmask: True=Zeroed-out substratum
+    keep_mask = y_range < y_subs  # boolmask: True=Substratum
+    zeros_below = ~keep_mask  # boolmask: True=Zeroed-out substratum
 
     body = stack[keep_mask].reshape(-1, x)  # stack content (=keep_mask) as 2D array
     zeros = stack[zeros_below].reshape(-1, x)  # zeros below substratum as 2D array
-    new_stack = np.concatenate([zeros, body], axis=0) # stick together, zeros on top
+    new_stack = np.concatenate([zeros, body], axis=0)  # stick together, zeros on top
 
-    result = new_stack.reshape(stack.shape) # reshape to original
+    result = new_stack.reshape(stack.shape)  # reshape to original
 
     return result
 
@@ -314,22 +322,25 @@ def binary_mask(img, thresholding_method, contrast, blurred, blur_size, outliers
             image_blurred = scipy.ndimage.gaussian_filter(image, sigma=sigma)
         else:
             image_blurred = image
-        
-        # Enhance contrast
-        p2, p98 = np.percentile(image_blurred, (contrast, 100-contrast))  
-        image_contrast = exposure.rescale_intensity(image_blurred, in_range=(p2, p98)) # type: ignore
 
-        if thresholding_method == 'yen':
+        # Enhance contrast
+        p2, p98 = np.percentile(image_blurred, (contrast, 100 - contrast))
+        image_contrast = exposure.rescale_intensity(image_blurred, in_range=(p2, p98))  # type: ignore
+
+        image_thresholded = None
+        if thresholding_method == "yen":
             # Apply Yen's thresholding method
             yen_threshold = filters.threshold_yen(image_contrast)
             image_thresholded = image_contrast > yen_threshold
-        elif thresholding_method == 'otsu':
+        elif thresholding_method == "otsu":
             # Apply Otsu's thresholding method
             otsu_threshold = filters.threshold_otsu(image_contrast)
             image_thresholded = image_contrast > otsu_threshold
 
         # Remove small bright objects
-        image_no_outliers = morphology.remove_small_objects(image_thresholded, min_size=outliers_size, connectivity=1)
+        image_no_outliers = morphology.remove_small_objects(
+            image_thresholded, min_size=outliers_size, connectivity=1
+        )
 
         # Append processed frame to the list
         processed_frames.append(image_no_outliers.astype(np.uint8) * 255)
@@ -337,6 +348,7 @@ def binary_mask(img, thresholding_method, contrast, blurred, blur_size, outliers
     # Convert list to 3D numpy array (num_frames, height, width)
     img = np.stack(processed_frames, axis=0)
     return img
+
 
 # Post-Processing functions
 def voxel_count(binarized_stack: np.ndarray) -> int:
@@ -354,12 +366,14 @@ def voxel_count(binarized_stack: np.ndarray) -> int:
     """
 
     if not set(np.unique(binarized_stack)).issubset({0, 1}):
-        raise ValueError("Passed stack is not binarized, contains values unequal to 0 or 1.")
+        raise ValueError(
+            "Passed stack is not binarized, contains values unequal to 0 or 1."
+        )
 
-    return np.sum(binarized_stack==1)
+    return np.sum(binarized_stack == 1)
+
 
 def generate_Height_Map(img, voxel_size, filename, output_folder, vmin, vmax):
-
     """
     Generates a height map from an image.
 
@@ -373,14 +387,14 @@ def generate_Height_Map(img, voxel_size, filename, output_folder, vmin, vmax):
         The filename of the image.
 
     Returns
-    -------  
+    -------
     height_map : numpy.ndarray
         The height map as a numpy array.
     min_thickness : float
         The minimum thickness of the image.
     mean_thickness : float
         The mean thickness of the image.
-    max_thickness : float 
+    max_thickness : float
         The maximum thickness of the image.
     std_thickness : float
         The standard deviation of the thickness of the image.
@@ -392,71 +406,81 @@ def generate_Height_Map(img, voxel_size, filename, output_folder, vmin, vmax):
         The surface coverage of the image ignoring the bottom 10 pixels.
     Raises
     ------
-    No Errors   
+    No Errors
     """
     # Change to 32-bit float for calculations
     img = img.astype(np.float32)
-    #image_stack=np.flip(image_stack, axis=1)
+    # image_stack=np.flip(image_stack, axis=1)
 
     # Normalize by dividing by 255
     img /= 255.0
-    
+
     # Get voxel size (assuming isotropic pixels in X and Y, different Z)
     dy, slice_thickness, dx = voxel_size  # Adjust if metadata is available
     print(f"Slice Thickness = {slice_thickness} mm")
     print(f"Pixel_dim_y = {dy} mm")
     print(f"Pixel_dim_x = {dx} mm")
-    
+
     resliced_stack = np.transpose(img, (1, 2, 0))
     # Flip along the new z-axis to correct orientation
-    #resliced_stack = np.flip(resliced_stack, axis=0) 
+    # resliced_stack = np.flip(resliced_stack, axis=0)
     slices, h, w = resliced_stack.shape
     # Calculate the height map (maximum z value for each (x, y) position)
-    max_indices = np.argmax(resliced_stack, axis=0)  # Maximum index along z-axis for each (x, y)  
-    height_map = (slices-max_indices) 
+    max_indices = np.argmax(
+        resliced_stack, axis=0
+    )  # Maximum index along z-axis for each (x, y)
+    height_map = slices - max_indices
 
     # Ensure zero indices remain zero
-    height_map[max_indices == 0] = 0 # Set zero indices to zero height
+    height_map[max_indices == 0] = 0  # Set zero indices to zero height
     height_map = height_map * slice_thickness  # Convert index to physical height
 
     # Calculate figure size in inches based on the actual dimensions
     # Convert pixels to inches
-    fig_width = w*dx
-    fig_height = h*dy
+    fig_width = w * dx
+    fig_height = h * dy
     print(fig_width)
     print(fig_height)
     # Generate and save Fire-coded height map
     output_path = os.path.join(output_folder, f"{filename}_HM")
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-    im = ax.imshow(height_map, cmap='inferno', vmin=vmin, vmax=vmax)  # Set min and max range for cmap
-    ax.axis('off')
-    plt.savefig(f"{output_path}.tiff", dpi=300, bbox_inches='tight', pad_inches=0)
-    
+    im = ax.imshow(
+        height_map, cmap="inferno", vmin=vmin, vmax=vmax
+    )  # Set min and max range for cmap
+    ax.axis("off")
+    plt.savefig(f"{output_path}.tiff", dpi=300, bbox_inches="tight", pad_inches=0)
+
     # Add a colorbar with reduced height
     cbar = plt.colorbar(im, ax=ax, fraction=0.03, pad=0.04)
-    cbar.ax.set_ylabel('Height (mm)', rotation=270, labelpad=15)
+    cbar.ax.set_ylabel("Height (mm)", rotation=270, labelpad=15)
     # Add a scale bar in the bottom right corner
     scale_bar_length = 100  # Length of the scale bar in pixels
     scale_bar_mm = scale_bar_length * dx  # Convert to mm
-    ax.plot([w - scale_bar_length - 10, w - 10], [h - 20, h - 20], color='white', lw=2)
-    ax.text(w - scale_bar_length - 10, h - 30, f"{scale_bar_mm:.1f} mm", color='white', fontsize=10, ha='left')
+    ax.plot([w - scale_bar_length - 10, w - 10], [h - 20, h - 20], color="white", lw=2)
+    ax.text(
+        w - scale_bar_length - 10,
+        h - 30,
+        f"{scale_bar_mm:.1f} mm",
+        color="white",
+        fontsize=10,
+        ha="left",
+    )
 
-    plt.savefig(f"{output_path}.png", dpi=300, bbox_inches='tight', pad_inches=0)
+    plt.savefig(f"{output_path}.png", dpi=300, bbox_inches="tight", pad_inches=0)
     plt.close()
-    
+
     # Compute thickness statistics
     valid_pixels = height_map
     min_thickness = np.min(valid_pixels) if valid_pixels.size > 0 else 0
     mean_thickness = np.mean(valid_pixels) if valid_pixels.size > 0 else 0
     max_thickness = np.max(valid_pixels) if valid_pixels.size > 0 else 0
     std_thickness = np.std(valid_pixels) if valid_pixels.size > 0 else 0
-    
+
     # Compute surface coverage using histogram method
     histogram, _ = np.histogram(height_map, bins=256, range=(0, np.max(height_map)))
     n_pixels = height_map.size
     substratum_coverage = (1 - np.sum(histogram[:3]) / n_pixels) * 100
 
-    
     # Prepare results
     results = [
         "Statistics:",
@@ -471,11 +495,18 @@ def generate_Height_Map(img, voxel_size, filename, output_folder, vmin, vmax):
     # Print results
     for line in results:
         print(line)
-    
-    return height_map, min_thickness, mean_thickness, max_thickness, std_thickness, substratum_coverage
+
+    return (
+        height_map,
+        min_thickness,
+        mean_thickness,
+        max_thickness,
+        std_thickness,
+        substratum_coverage,
+    )
+
 
 def generate_B_Map(img, voxel_size, filename, output_folder, vmin, vmax):
-
     """
     Generates a biovolume map from an image.
 
@@ -489,14 +520,14 @@ def generate_B_Map(img, voxel_size, filename, output_folder, vmin, vmax):
         The filename of the image.
 
     Returns
-    -------  
+    -------
     B_map : numpy.ndarray
         The biovolume map as a numpy array.
     min_thickness : float
         The minimum thickness of the image.
     mean_thickness : float
         The mean thickness of the image.
-    max_thickness : float 
+    max_thickness : float
         The maximum thickness of the image.
     std_thickness : float
         The standard deviation of the thickness of the image.
@@ -508,66 +539,76 @@ def generate_B_Map(img, voxel_size, filename, output_folder, vmin, vmax):
         The surface coverage of the image ignoring the bottom 10 pixels.
     Raises
     ------
-    No Errors   
+    No Errors
     """
     # Change to 32-bit float for calculations
     img = img.astype(np.float32)
-    #image_stack=np.flip(image_stack, axis=1)
+    # image_stack=np.flip(image_stack, axis=1)
 
     # Normalize by dividing by 255
     img /= 255.0
-    
+
     # Get voxel size (assuming isotropic pixels in X and Y, different Z)
     dy, slice_thickness, dx = voxel_size  # Adjust if metadata is available
     print(f"Slice Thickness = {slice_thickness} mm")
     print(f"Pixel_dim_y = {dy} mm")
     print(f"Pixel_dim_x = {dx} mm")
-    
+
     resliced_stack = np.transpose(img, (1, 2, 0))
     # Flip along the new z-axis to correct orientation
-    #resliced_stack = np.flip(resliced_stack, axis=0) 
+    # resliced_stack = np.flip(resliced_stack, axis=0)
     slices, h, w = resliced_stack.shape
     # Calculate the biovolume map (maximum z value for each (x, y) position)
-    non_zero_counts = np.count_nonzero(resliced_stack, axis=0)  # Maximum index along z-axis for each (x, y)   
+    non_zero_counts = np.count_nonzero(
+        resliced_stack, axis=0
+    )  # Maximum index along z-axis for each (x, y)
     B_map = non_zero_counts * slice_thickness  # Convert index to physical height
     # Convert pixels to inches
-    fig_width = w*dx
-    fig_height = h*dy
+    fig_width = w * dx
+    fig_height = h * dy
     print(fig_width)
     print(fig_height)
-    
+
     # Generate and save Fire-coded height map
     output_path = os.path.join(output_folder, f"{filename}_BM")
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-    im = ax.imshow(B_map, cmap='inferno', vmin=vmin, vmax=vmax)  # Set min and max range for cmap
-    ax.axis('off')
-    plt.savefig(f"{output_path}.tiff", dpi=300, bbox_inches='tight', pad_inches=0)
-    
+    im = ax.imshow(
+        B_map, cmap="inferno", vmin=vmin, vmax=vmax
+    )  # Set min and max range for cmap
+    ax.axis("off")
+    plt.savefig(f"{output_path}.tiff", dpi=300, bbox_inches="tight", pad_inches=0)
+
     # Add a colorbar with reduced height
     cbar = plt.colorbar(im, ax=ax, fraction=0.03, pad=0.04)
-    cbar.ax.set_ylabel('Height (mm)', rotation=270, labelpad=15)
+    cbar.ax.set_ylabel("Height (mm)", rotation=270, labelpad=15)
     # Add a scale bar in the bottom right corner
     scale_bar_length = 100  # Length of the scale bar in pixels
     scale_bar_mm = scale_bar_length * dx  # Convert to mm
-    ax.plot([w - scale_bar_length - 10, w - 10], [h - 20, h - 20], color='white', lw=2)
-    ax.text(w - scale_bar_length - 10, h - 30, f"{scale_bar_mm:.1f} mm", color='white', fontsize=10, ha='left')
+    ax.plot([w - scale_bar_length - 10, w - 10], [h - 20, h - 20], color="white", lw=2)
+    ax.text(
+        w - scale_bar_length - 10,
+        h - 30,
+        f"{scale_bar_mm:.1f} mm",
+        color="white",
+        fontsize=10,
+        ha="left",
+    )
 
-    plt.savefig(f"{output_path}.png", dpi=300, bbox_inches='tight', pad_inches=0)
+    plt.savefig(f"{output_path}.png", dpi=300, bbox_inches="tight", pad_inches=0)
     plt.close()
-    
+
     # Compute thickness statistics
     valid_pixels = B_map
     min_thickness_B_map = np.min(valid_pixels) if valid_pixels.size > 0 else 0
     mean_thickness_B_map = np.mean(valid_pixels) if valid_pixels.size > 0 else 0
     max_thickness_B_map = np.max(valid_pixels) if valid_pixels.size > 0 else 0
     std_thickness_B_map = np.std(valid_pixels) if valid_pixels.size > 0 else 0
-    
+
     # Compute surface coverage using histogram method
     histogram, _ = np.histogram(B_map, bins=256, range=(0, np.max(B_map)))
     n_pixels = B_map.size
     substratum_coverage_B_map = (1 - np.sum(histogram[:4]) / n_pixels) * 100
 
-    
     # Prepare results
     results = [
         "Statistics:",
@@ -582,8 +623,16 @@ def generate_B_Map(img, voxel_size, filename, output_folder, vmin, vmax):
     # Print results
     for line in results:
         print(line)
-    
-    return B_map, min_thickness_B_map, mean_thickness_B_map, max_thickness_B_map, std_thickness_B_map, substratum_coverage_B_map
+
+    return (
+        B_map,
+        min_thickness_B_map,
+        mean_thickness_B_map,
+        max_thickness_B_map,
+        std_thickness_B_map,
+        substratum_coverage_B_map,
+    )
+
 
 def calculate_roughness(img, voxel_size, threshold=0):
     """
@@ -622,18 +671,20 @@ def calculate_roughness(img, voxel_size, threshold=0):
             above_threshold = np.where(column > threshold)[0]
 
             if len(above_threshold) > 0:
-                biofilm_down = height-above_threshold[0]
+                biofilm_down = height - above_threshold[0]
             else:
                 biofilm_down = 0  # No biofilm found
 
             surface_heights.append(biofilm_down)
 
-        surface_heights = np.array(surface_heights)*slice_thickness
+        surface_heights = np.array(surface_heights) * slice_thickness
 
         mean_thickness = np.mean(surface_heights)
         arithmetic_roughness = np.mean(np.abs(surface_heights - mean_thickness))  # Ra
         rms_roughness = np.std(surface_heights)  # Rq
-        roughness_coeff = arithmetic_roughness / mean_thickness if mean_thickness > 0 else 0
+        roughness_coeff = (
+            arithmetic_roughness / mean_thickness if mean_thickness > 0 else 0
+        )
 
         mean_thickness_list.append(mean_thickness)
         arithmetic_roughness_list.append(arithmetic_roughness)
@@ -657,13 +708,15 @@ def calculate_roughness(img, voxel_size, threshold=0):
     print(f"Std Arithmetic Roughness (Ra) = {std_arithmetric_roughness:.3f} mm")
     print(f"Std RMS Roughness (Rq) = {std_rms_roughness:.3f} mm")
 
+    return (
+        mean_arithmetic_roughness,
+        std_arithmetric_roughness,
+        mean_rms_roughness,
+        std_rms_roughness,
+        mean_roughness_coeff,
+        std_roughness_coeff,
+    )
 
-    return (mean_arithmetic_roughness,
-            std_arithmetric_roughness, 
-            mean_rms_roughness, 
-            std_rms_roughness, 
-            mean_roughness_coeff, 
-            std_roughness_coeff)
 
 def calculate_porosity(img, threshold=0):
     """
@@ -700,13 +753,15 @@ def calculate_porosity(img, threshold=0):
 
             void_voxels = np.sum(column[surface_pos:height] <= threshold)
             total_void_voxels += void_voxels
-            total_surface_voxels += height-surface_pos
+            total_surface_voxels += height - surface_pos
 
-        porosity = total_void_voxels / total_surface_voxels if total_surface_voxels > 0 else 0
+        porosity = (
+            total_void_voxels / total_surface_voxels if total_surface_voxels > 0 else 0
+        )
         porosity_list.append(porosity)
 
-    mean_porosity = np.mean(porosity_list)*100 # Convert to percentage
-    std_porosity = np.std(porosity_list)*100 # Convert to percentage
+    mean_porosity = np.mean(porosity_list) * 100  # Convert to percentage
+    std_porosity = np.std(porosity_list) * 100  # Convert to percentage
 
     print(f"Mean Porosity = {mean_porosity:.3f} %")
     print(f"Std Porosity = {std_porosity:.3f} %")
@@ -728,7 +783,7 @@ def calculate_porosity_between_bounds(binarized_stack: np.ndarray) -> float:
     porosity : float (in %)
     """
     _, h, _ = binarized_stack.shape
-    mask = binarized_stack.astype(bool) # 1=True, 0=False
+    mask = binarized_stack.astype(bool)  # 1=True, 0=False
 
     # Für jede Spalte: erste(oberste) und letzte(unterste) Position mit 1 finden
     first = np.argmax(mask, axis=1)  # shape (slices, width)
@@ -753,7 +808,6 @@ def calculate_porosity_between_bounds(binarized_stack: np.ndarray) -> float:
     return porosity
 
 
-
 # Labeling functions
 ## utility functions
 def get_load_fn(filepath: Path) -> Callable:
@@ -771,21 +825,22 @@ def get_load_fn(filepath: Path) -> Callable:
     Callable
         A function that can load the file.
     """
-    
+
     if not filepath.exists():
         show_error("File does not exist.")
         raise FileNotFoundError(f"File not found: {filepath}")
-    
-    ext = ''.join(filepath.suffixes).lower()
-    if ext in ['.nii', '.nii.gz', '.niigz']:
+
+    ext = "".join(filepath.suffixes).lower()
+    if ext in [".nii", ".nii.gz", ".niigz"]:
         return load_nifti
-    elif ext == '.oct':
+    elif ext == ".oct":
         return load_oct
-    elif ext in ['.tif', '.tiff']:
+    elif ext in [".tif", ".tiff"]:
         return load_tif
     else:
         show_error(f"Unsupported file extension: {ext}")
         raise ValueError(f"Unsupported file extension: {ext}")
+
 
 def load_nifti(filepath: Path) -> tuple[np.ndarray, dict]:
     """
@@ -809,86 +864,99 @@ def load_nifti(filepath: Path) -> tuple[np.ndarray, dict]:
     header = img.header
 
     meta = {
-        'size_px': {
-            'x': int(header['dim'][1]),
-            'z': int(header['dim'][2]),
-            'y': int(header['dim'][3]),
+        "size_px": {
+            "x": int(header["dim"][1]),
+            "z": int(header["dim"][2]),
+            "y": int(header["dim"][3]),
         },
-        'spacing_mm': {
-            'x': float(header.get_zooms()[0]),
-            'y': float(header.get_zooms()[1]), # type: ignore
-            'z': float(header.get_zooms()[2]), # type: ignore
+        "spacing_mm": {
+            "x": float(header.get_zooms()[0]),
+            "y": float(header.get_zooms()[1]),  # type: ignore
+            "z": float(header.get_zooms()[2]),  # type: ignore
         },
-        'filename': str(filepath.stem)
+        "filename": str(filepath.stem),
     }
-    
+
     return data, meta
 
-def load_oct(filepath: Path) -> tuple[np.ndarray, dict]:
 
-    with zipfile.ZipFile(filepath, 'r') as z:
+def load_oct(filepath: Path) -> tuple[np.ndarray, dict]:
+    with zipfile.ZipFile(filepath, "r") as z:
         items = z.namelist()
 
-        for item in items:
-            if "xml" in item:
-                header = item
-            elif "Intensity" in item:
-                intensity = item
-            # elif "Video" in item:
-            #     videoimg = item
+        header = next((item for item in items if "xml" in item), None)
+        intensity = next((item for item in items if "Intensity" in item), None)
+        # elif "Video" in item:
+        #     videoimg = item
 
         # get metadata
+        if header is None:
+            raise FileNotFoundError("Header.xml not found in OCT file.")
         with z.open(header) as xmlf:
             tree = ET.parse(xmlf)
             root = tree.getroot()
-        
+
         def get(path, cast=str):
             element = root.find(path)
             return cast(element.text) if element is not None else 0
-        
+
         try:
-            meta = { # TODO: get VideoImage metadata
-                'size_px': {
-                    'z': int(get("Image/SizePixel/SizeZ")),
-                    'y': int(get("Image/SizePixel/SizeY")),
-                    'x': int(get("Image/SizePixel/SizeX")),
+            meta = {  # TODO: get VideoImage metadata
+                "size_px": {
+                    "z": int(get("Image/SizePixel/SizeZ")),
+                    "y": int(get("Image/SizePixel/SizeY")),
+                    "x": int(get("Image/SizePixel/SizeX")),
                 },
-                'fov_mm': {
-                    'z': float(get("Image/SizeReal/SizeZ")),
-                    'y': float(get("Image/SizeReal/SizeY")),
-                    'x': float(get("Image/SizeReal/SizeX")),
+                "fov_mm": {
+                    "z": float(get("Image/SizeReal/SizeZ")),
+                    "y": float(get("Image/SizeReal/SizeY")),
+                    "x": float(get("Image/SizeReal/SizeX")),
                 },
-                'spacing_mm': {
-                    'z': float(get("Image/PixelSpacing/SizeZ")),
-                    'y': float(get("Image/PixelSpacing/SizeY")),
-                    'x': float(get("Image/PixelSpacing/SizeX")),
+                "spacing_mm": {
+                    "z": float(get("Image/PixelSpacing/SizeZ")),
+                    "y": float(get("Image/PixelSpacing/SizeY")),
+                    "x": float(get("Image/PixelSpacing/SizeX")),
                 },
-                'instrument': {
-                    'model': get("Instrument/Model"),
-                    'serial': get("Instrument/Serial"),
-                    'central_wavelength': float(get("Instrument/CentralWavelength")),
+                "instrument": {
+                    "model": get("Instrument/Model"),
+                    "serial": get("Instrument/Serial"),
+                    "central_wavelength": float(get("Instrument/CentralWavelength")),
                 },
-                'dtype': get("Image/DataType"),
-                'timestamp': int(get("Acquisition/Timestamp")),
-                'filename': str(Path(filepath).stem)
+                "dtype": get("Image/DataType"),
+                "timestamp": int(get("Acquisition/Timestamp")),
+                "filename": str(Path(filepath).stem),
             }
             # Fallback falls PixelSpacing = 0:
-            for axis in ['x', 'y', 'z']:
-                if meta['spacing_mm'][axis] == 0.0:
-                    if meta['size_px'][axis] > 0 and meta['fov_mm'][axis] > 0:
-                        meta['spacing_mm'][axis] = meta['fov_mm'][axis] / meta['size_px'][axis]
+            for axis in ["x", "y", "z"]:
+                if meta["spacing_mm"][axis] == 0.0:
+                    if meta["size_px"][axis] > 0 and meta["fov_mm"][axis] > 0:
+                        meta["spacing_mm"][axis] = (
+                            meta["fov_mm"][axis] / meta["size_px"][axis]
+                        )
                     else:
-                        print(f"[WARN] Invalid pixel size for axis {axis}, fallback not possible")
+                        print(
+                            f"[WARN] Invalid pixel size for axis {axis}, fallback not possible"
+                        )
 
         except (TypeError, ValueError, AttributeError) as e:
-            print(f"[ERROR] Failed while parsing metadata: {e}. Process terminated. Please check Header.xml file.")
-            return # type: ignore
+            print(
+                f"[ERROR] Failed while parsing metadata: {e}. Process terminated. Please check Header.xml file."
+            )
+            return  # type: ignore
 
         # reformat intensity.data into np.ndarray
+        if intensity is None:
+            raise FileNotFoundError("Intensity data not found in OCT file.")
         with z.open(intensity) as f:
             intensity_data_raw = f.read()
-        shape = (meta['size_px']['y'], meta['size_px']['x'], meta['size_px']['z']) # ZXY
-        intensity_data = np.frombuffer(intensity_data_raw, dtype=np.float32).copy().reshape(shape)
+        shape = (
+            meta["size_px"]["y"],
+            meta["size_px"]["x"],
+            meta["size_px"]["z"],
+        )  # ZXY
+        intensity_data = (
+            np.frombuffer(intensity_data_raw, dtype=np.float32).copy().reshape(shape)
+        )
         intensity_data = intensity_data.transpose(0, 2, 1)
 
         # TODO: need metadata from VideoImage first
@@ -897,7 +965,8 @@ def load_oct(filepath: Path) -> tuple[np.ndarray, dict]:
         # shape = (meta['videoimg']['width'], meta['videoimg']['height'], 4) # 4 channels (RGBA)
         # video_image = np.frombuffer(videoimage_raw, dtype=np.uint8).reshape(shape)
 
-    return intensity_data, meta # video_image
+    return intensity_data, meta  # video_image
+
 
 def load_tif(file_path: Path) -> tuple[np.ndarray, dict]:
     """
@@ -913,20 +982,20 @@ def load_tif(file_path: Path) -> tuple[np.ndarray, dict]:
     tuple
         A tuple containing the image data as a numpy array and a dictionary of metadata.
     """
-    
+
     with tiff.TiffFile(file_path) as tif:
-        page = tif.pages[0] # first page
-        tags = page.tags # type: ignore
+        page = tif.pages[0]  # first page
+        tags = page.tags  # type: ignore
 
         # Extract and parse ImageDescription metadata if available
-        description = tags.get('ImageDescription')  # type: ignore
+        description = tags.get("ImageDescription")  # type: ignore
         imagej_metadata = {}
         if description:
             for line in description.value.splitlines():
-                if '=' in line:
-                    key, value = line.split('=', 1)
+                if "=" in line:
+                    key, value = line.split("=", 1)
                     imagej_metadata[key.strip()] = value.strip()
-        
+
         # Read stack data
         stack = tif.asarray()
         if stack is None:
@@ -936,21 +1005,22 @@ def load_tif(file_path: Path) -> tuple[np.ndarray, dict]:
 
         # Parse ImageJ metadata
         metadata = {
-            'Z': int(imagej_metadata.get('slices', 1)),
-            'Y': page.tags['ImageLength'].value, # type: ignore
-            'X': page.tags['ImageWidth'].value, # type: ignore
-            'shape': tif.series[0].shape,
-            'dtype': str(tif.series[0].dtype),
-            'axes': tif.series[0].axes,
-            'XResolution': page.tags['XResolution'].value, # type: ignore
-            'YResolution': page.tags['YResolution'].value, # type: ignore
-            'unit': imagej_metadata.get('unit', None),
-            'spacing': float(imagej_metadata.get('spacing', 1.0)),
+            "Z": int(imagej_metadata.get("slices", 1)),
+            "Y": page.tags["ImageLength"].value,  # type: ignore
+            "X": page.tags["ImageWidth"].value,  # type: ignore
+            "shape": tif.series[0].shape,
+            "dtype": str(tif.series[0].dtype),
+            "axes": tif.series[0].axes,
+            "XResolution": page.tags["XResolution"].value,  # type: ignore
+            "YResolution": page.tags["YResolution"].value,  # type: ignore
+            "unit": imagej_metadata.get("unit", None),
+            "spacing": float(imagej_metadata.get("spacing", 1.0)),
         }
 
     return stack, metadata
 
-def load_settings (settings_file: Path) -> dict:
+
+def load_settings(settings_file: Path) -> dict:
     if not settings_file.exists():
         show_error(f"Settings file does not exist: {settings_file}")
         raise FileNotFoundError(f"Settings file not found: {settings_file}")
@@ -959,85 +1029,97 @@ def load_settings (settings_file: Path) -> dict:
         settings = json.load(f)
     return settings
 
+
 def _normalize(stack: NDArray[np.float32]) -> NDArray[np.float32]:
     stack_norm = (stack - np.min(stack)) / (np.max(stack) - np.min(stack))
     return stack_norm.astype(np.float32)
 
-def get_save_fn(stack: np.ndarray, metadata: dict, fmt: str) -> Callable:
 
-    if metadata is None:
-        show_error("Metadata is required for saving.")
+def get_save_fn(stack: np.ndarray, metadata: dict | None, fmt: str) -> Callable:
+    if metadata is None or not isinstance(metadata, dict):
+        show_error(
+            "Metadata is required for saving. Error in metadata format/existence."
+        )
         raise ValueError("Metadata is required for saving.")
-    if stack is None:
+    if not stack:
         show_error("Stack is required for saving.")
         raise ValueError("Stack is required for saving.")
 
-    if fmt in ['.nii', '.nii.gz', '.niigz']:
+    if fmt in [".nii", ".nii.gz", ".niigz"]:
         return save_as_nifti
-    elif fmt in ['.tif', '.tiff']:
+    elif fmt in [".tif", ".tiff"]:
         return save_as_tiff
     else:
         show_error(f"Unsupported file format for saving: {fmt}")
         raise ValueError(f"Unsupported file format for saving: {fmt}")
 
-def save_as_nifti(stack: np.ndarray, stack_metadata: dict, binary_stack: np.ndarray, output_dir: Path) -> bool:
-    spacing = stack_metadata['spacing_mm']
+
+def save_as_nifti(
+    stack: np.ndarray, stack_metadata: dict, binary_stack: np.ndarray, output_dir: Path
+) -> bool:
+    spacing = stack_metadata["spacing_mm"]
     if any(v == 0 for v in spacing.values()):
         affine = np.diag([0.01, 0.01, 0.01, 1.0])
         print("[WARN]: Fallback values used for pixel spacing!")
     else:
-        affine = np.diag([spacing['x'], spacing['y'], spacing['z'], 1.0])
+        affine = np.diag([spacing["x"], spacing["y"], spacing["z"], 1.0])
 
     nii_stack = nib.nifti1.Nifti1Image(stack.astype(np.float32), affine)
     nii_binary = nib.nifti1.Nifti1Image(binary_stack.astype(np.uint8), affine)
 
     # metadaten für nifti header
-    model = stack_metadata['instrument']['model']
-    wl = stack_metadata['instrument']['central_wavelength']
-    timestamp = stack_metadata['timestamp']
+    model = stack_metadata["instrument"]["model"]
+    wl = stack_metadata["instrument"]["central_wavelength"]
+    timestamp = stack_metadata["timestamp"]
     descrip = f"{model}_{wl:.0f}nm_{timestamp}"
 
-    nii_stack.header['descrip'] = descrip[:80]
-    nii_binary.header['descrip'] = descrip[:80]
+    nii_stack.header["descrip"] = descrip[:80]
+    nii_binary.header["descrip"] = descrip[:80]
 
     # speichern
     output_dir.mkdir(parents=True, exist_ok=True)
     try:
-        nib.save(nii_stack, output_dir / f"{stack_metadata['filename']}.nii.gz") # type: ignore
-        nib.save(nii_binary, output_dir / f"{stack_metadata['filename']}_mask.nii.gz") # type: ignore
+        nib.save(nii_stack, output_dir / f"{stack_metadata['filename']}.nii.gz")  # type: ignore
+        nib.save(nii_binary, output_dir / f"{stack_metadata['filename']}_mask.nii.gz")  # type: ignore
         return True
     except Exception as e:
         show_error(f"Failed to save NIfTI files: {e}")
         return False
 
-def save_as_tiff(stack: np.ndarray, metadata: dict, binary_stack: np.ndarray, output_dir: Path) -> bool:
 
+def save_as_tiff(
+    stack: np.ndarray, metadata: dict, binary_stack: np.ndarray, output_dir: Path
+) -> bool:
     output_dir.mkdir(parents=True, exist_ok=True)
     try:
         with tiff.TiffWriter(output_dir / f"{metadata['filename']}.tiff") as tif:
-            tif.write(
-                stack,
-                photometric='minisblack',
-                metadata=metadata
-            )
-        with tiff.TiffWriter(output_dir / f"{metadata['filename']}_binary.tiff") as bin_tif:
-            bin_tif.write(
-                binary_stack,
-                photometric='minisblack',
-                metadata=metadata
-            )
+            tif.write(stack, photometric="minisblack", metadata=metadata)
+        with tiff.TiffWriter(
+            output_dir / f"{metadata['filename']}_binary.tiff"
+        ) as bin_tif:
+            bin_tif.write(binary_stack, photometric="minisblack", metadata=metadata)
         return True
     except Exception as e:
         show_error(f"Failed to save TIFF files: {e}")
         return False
 
 
-def save_settings(settings_file, user_handle: str, setting_widgets: list, stack_metadata: dict) -> bool:
+def save_settings(
+    settings_file, user_handle: str, setting_widgets: list, stack_metadata: dict | None
+) -> bool:
     settings = {}
 
-    filename_image = stack_metadata['filename']
+    if stack_metadata is None or not isinstance(stack_metadata, dict):
+        show_error(
+            "Metadata is required for saving settings. Error in metadata format/existence."
+        )
+        raise ValueError("Metadata is required for saving settings.")
+
+    filename_image = stack_metadata["filename"]
     match = re.search(r"_(\d+)_", filename_image)
-    image_id = match.group(1) if match else "unknown"   #Read image ID from filename, e.g. "Mina_0054_Mode3D.oct" -> "0054"
+    image_id = (
+        match.group(1) if match else "unknown"
+    )  # Read image ID from filename, e.g. "Mina_0054_Mode3D.oct" -> "0054"
 
     filename = f"settings_{image_id}_{user_handle}.json"
     settings_file = Path(settings_file) / filename
@@ -1064,12 +1146,13 @@ def save_settings(settings_file, user_handle: str, setting_widgets: list, stack_
         show_error(f"Failed to save settings: {e}")
         return False
 
+
 # Labeling-Functions
 ## processing functions
 def zero_out_ignored_slices(stack: np.ndarray, ignored_slices: list[int]) -> np.ndarray:
     if not isinstance(ignored_slices, list):
         raise TypeError("ignored_slices must be a list of integers.")
-    
+
     if not all(isinstance(i, int) for i in ignored_slices):
         raise ValueError("All elements in ignored_slices must be integers.")
 
@@ -1077,11 +1160,22 @@ def zero_out_ignored_slices(stack: np.ndarray, ignored_slices: list[int]) -> np.
     copy[ignored_slices, :, :] = 0  # Zero out specified slices
     return copy
 
+
 def median_blur(stack: np.ndarray, filter_size: int) -> np.ndarray:
-    return scipy.ndimage.median_filter(stack, size=(1, filter_size, filter_size)) # filterplane=2D (xz), not filtering depth (y) since it's anistropic to xz
+    return scipy.ndimage.median_filter(
+        stack, size=(1, filter_size, filter_size)
+    )  # filterplane=2D (xz), not filtering depth (y) since it's anistropic to xz
+
 
 def roi_filter_2D(stack: np.ndarray, roi_size: int) -> np.ndarray:
-    return scipy.ndimage.uniform_filter(stack, size=(roi_size, roi_size), axes=(0, 2), mode='reflect') # type: ignore
+    # cast uniform_filter auf Callable, das tuple[int,int] erlaubt
+
+    uniform_filter_fn = cast(Callable[..., np.ndarray], scipy.ndimage.uniform_filter)
+
+    return uniform_filter_fn(
+        stack, size=(roi_size, roi_size), axes=(0, 2), mode="reflect"
+    )
+
 
 def locate_window(stack: np.ndarray, ymin: int, ymax: int, y_offset: int) -> np.ndarray:
     y_coords = np.argmax(stack[:, ymin:ymax, :], axis=1)
@@ -1089,30 +1183,42 @@ def locate_window(stack: np.ndarray, ymin: int, ymax: int, y_offset: int) -> np.
 
     return y_coords
 
+
 def zero_out_window(stack: np.ndarray, window_coords: np.ndarray) -> np.ndarray:
     yy = np.arange(stack.shape[1])  # Create a range for y-coordinates
     yy = yy.reshape(1, -1, 1)  # Reshape to ensure it can be broadcasted
     copy = stack.copy()  # Create a copy of the image to avoid modifying the original
-    copy[yy < window_coords[:, np.newaxis, :]] = 0 # Set pixels above the window to zero
+    copy[yy < window_coords[:, np.newaxis, :]] = (
+        0  # Set pixels above the window to zero
+    )
     return copy
 
-def locate_substratum(stack: np.ndarray, ymin: int, ymax: int, y_offset: int) -> np.ndarray:
+
+def locate_substratum(
+    stack: np.ndarray, ymin: int, ymax: int, y_offset: int
+) -> np.ndarray:
     y_coords = np.argmax(stack[:, ymin:ymax, :], axis=1)
     y_coords = y_coords + ymin + y_offset
 
     return y_coords
 
+
 def zero_out_substratum(stack: np.ndarray, substratum_coords: np.ndarray) -> np.ndarray:
     yy = np.arange(stack.shape[1])  # Create a range for y-coordinates
     yy = yy.reshape(1, -1, 1)  # Reshape to ensure it can be broadcasted
     copy = stack.copy()  # Create a copy of the image to avoid modifying the original
-    copy[yy >= substratum_coords[:, np.newaxis, :]] = 0  # Set pixels below the substratum to zero
+    copy[yy >= substratum_coords[:, np.newaxis, :]] = (
+        0  # Set pixels below the substratum to zero
+    )
     return copy
+
 
 def increase_contrast(stack: np.ndarray, percentile: float) -> np.ndarray:
     nonzero_values = stack[stack > 0]  # Extract non-zero values
-    min_val = np.percentile(nonzero_values, percentile)  # Find the 1st percentile without zeros
-    max_val = np.percentile(stack, 100 - percentile) 
+    min_val = np.percentile(
+        nonzero_values, percentile
+    )  # Find the 1st percentile without zeros
+    max_val = np.percentile(stack, 100 - percentile)
     if max_val == min_val:
         show_info("Image has no contrast to enhance.")
         return stack
@@ -1120,21 +1226,25 @@ def increase_contrast(stack: np.ndarray, percentile: float) -> np.ndarray:
     contrast_enhanced = np.clip(((stack - min_val) / (max_val - min_val)), 0, 1)
     return contrast_enhanced
 
+
 def plot_histograms(original: np.ndarray, new: np.ndarray, percentile: float):
     plt.figure(figsize=(12, 6))
 
     plt.subplot(1, 2, 1)
-    plt.hist(original.ravel(), bins=256, range=(0, 1), color='blue', alpha=0.7, log = True)
-    plt.title('Original image histogram')
-    plt.xlabel('Pixel intensity')
-    plt.ylabel('Pixel amount')
+    plt.hist(
+        original.ravel(), bins=256, range=(0, 1), color="blue", alpha=0.7, log=True
+    )
+    plt.title("Original image histogram")
+    plt.xlabel("Pixel intensity")
+    plt.ylabel("Pixel amount")
 
     plt.subplot(1, 2, 2)
-    plt.hist(new.ravel(), bins=256, range=(0, 1), color='green', alpha=0.7, log = True)
-    plt.title(f'Contrast enhanced image histogram with percentile {percentile}') 
-    plt.xlabel('Pixel intensity')
-    plt.ylabel('Pixel amount')
+    plt.hist(new.ravel(), bins=256, range=(0, 1), color="green", alpha=0.7, log=True)
+    plt.title(f"Contrast enhanced image histogram with percentile {percentile}")
+    plt.xlabel("Pixel intensity")
+    plt.ylabel("Pixel amount")
     plt.show()
+
 
 def get_threshold(stack: np.ndarray):
     """
@@ -1143,14 +1253,19 @@ def get_threshold(stack: np.ndarray):
 
     nonzero_values = stack[stack > 0]  # Extract non-zero values
 
-    thresh = filters.threshold_triangle(nonzero_values)  # Use triangle thresholding on non-zero values
+    thresh = filters.threshold_triangle(
+        nonzero_values
+    )  # Use triangle thresholding on non-zero values
 
     return thresh
+
 
 def rm_outliers(stack: np.ndarray, size: int) -> np.ndarray:
     bool_stack = stack.astype(bool)
 
-    stack_transformed = morphology.remove_small_objects(bool_stack, size, connectivity=1)
+    stack_transformed = morphology.remove_small_objects(
+        bool_stack, size, connectivity=1
+    )
 
     stack = stack_transformed.astype(np.uint8)
 

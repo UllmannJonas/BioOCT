@@ -3,6 +3,7 @@ from pathlib import Path
 
 CONFIG_FILE = Path(__file__).resolve().parent / ".directories.json"
 
+
 def load_config():
     if CONFIG_FILE.exists():
         try:
@@ -11,6 +12,7 @@ def load_config():
         except Exception:
             return {}
     return {}
+
 
 def save_config(config: dict):
     try:

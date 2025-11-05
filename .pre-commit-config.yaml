@@ -20,6 +20,8 @@ repos:
   rev: v1.1.407
   hooks:
     - id: pyright
+      language: system
+      types: [python]
 
 # possible to add local hook for pytest later
 # - repo: local

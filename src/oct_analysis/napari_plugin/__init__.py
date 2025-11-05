@@ -8,8 +8,8 @@ from magicgui.widgets import Container
 # import json
 # from pathlib import Path
 
-def main():
 
+def main():
     # save-settings funktion. später ersetzen durch class-struktur des widgets.py inhalts
     # @magicgui(call_button="Save Settings",
     #         settings_file={"widget_type": "FileEdit", "mode": "w", "value": str(Path.home() / "settings.json")}
@@ -40,27 +40,21 @@ def main():
     #
 
     # Instructions Tab
-    instructions_widgets = [
-        widgets.show_instructions
-    ]
+    instructions_widgets = [widgets.show_instructions]
     scrolltab_instructions = create_scrolltab(
-        widget_list=instructions_widgets,
-        name='Instructions'
+        widget_list=instructions_widgets, name="Instructions"
     )
 
-    #Pre-Processing Tab
+    # Pre-Processing Tab
     pre_widgets = [
         widgets.load_button,
         widgets.ignore_slices,
         widgets.median_filter,
         widgets.roi_filter_2D,
         widgets.locate_window,
-        widgets.zero_out_window
+        widgets.zero_out_window,
     ]
-    scrolltab_pre = create_scrolltab(
-        widget_list=pre_widgets,
-        name='Pre-Processing'
-    )
+    scrolltab_pre = create_scrolltab(widget_list=pre_widgets, name="Pre-Processing")
 
     # Labeling Tab
     labeling_widgets = [
@@ -73,23 +67,15 @@ def main():
         widgets.load_settings,
         widgets.apply_loaded_settings_single,
         widgets.handle_input,
-#        save_settings,
-        widgets.save
+        #        save_settings,
+        widgets.save,
     ]
-    scrolltab_labeling = create_scrolltab(
-        widget_list=labeling_widgets,
-        name='Labeling'
-    )
+    scrolltab_labeling = create_scrolltab(widget_list=labeling_widgets, name="Labeling")
 
     # Post-Processing Tab
-    post_widgets = [
-        widgets.count_voxels
-    ]
-    scrolltab_post = create_scrolltab(
-        widget_list=post_widgets,
-        name='Post-Processing'
-    )
-    
+    post_widgets = [widgets.count_voxels]
+    scrolltab_post = create_scrolltab(widget_list=post_widgets, name="Post-Processing")
+
     # Merge Tabs
     tabs = QTabWidget()
     tabs.addTab(scrolltab_instructions, "Instructions")
@@ -103,11 +89,7 @@ def main():
 # helper functions
 def create_scrolltab(widget_list, name="", min_width=300):
     container = Container(
-        widgets=widget_list,
-        layout='vertical',
-        name=name,
-        visible=True,
-        labels=False
+        widgets=widget_list, layout="vertical", name=name, visible=True, labels=False
     )
 
     inner_widget = QWidget()
