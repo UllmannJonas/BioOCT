@@ -151,8 +151,8 @@ def save(
             show_info(f"Saved stack and binary mask to {output_directory})")
 
 
-@gui_error_handler
 @magicgui(call_button="Load settings.json")
+@gui_error_handler
 def load_settings(viewer: napari.Viewer):
     if "original" not in viewer.layers:
         show_info("OCT File has to be loaded before loading settings.")
