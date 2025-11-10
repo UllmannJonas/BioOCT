@@ -3,11 +3,11 @@ Assembly of napari plugin widgets into scrollable tabs.
 """
 
 # Third-party imports
-from oct_analysis.napari_plugin import widgets
-from qtpy.QtWidgets import QTabWidget
+from magicgui.widgets import Container
+from qtpy.QtWidgets import QTabWidget, QScrollArea, QWidget, QVBoxLayout
 
 # Local imports
-from oct_analysis.toolkit import utils
+from oct_analysis.napari_plugin import widgets
 
 
 def main():
@@ -26,7 +26,7 @@ def main():
         widgets.load_settings,
         # widgets.apply_loaded_settings_single,
     ]
-    scrolltab_io = utils.create_scrolltab(widget_list=io_widgets, name="Loading/Saving")
+    scrolltab_io = create_scrolltab(widget_list=io_widgets, name="Loading/Saving")
 
     # Pre-Processing Tab
     pre_widgets = [
@@ -38,9 +38,7 @@ def main():
         widgets.locate_substratum,
         widgets.zero_out_substratum,
     ]
-    scrolltab_pre = utils.create_scrolltab(
-        widget_list=pre_widgets, name="Pre-Processing"
-    )
+    scrolltab_pre = create_scrolltab(widget_list=pre_widgets, name="Pre-Processing")
 
     # Binarize Tab
     bin_widgets = [
@@ -49,7 +47,7 @@ def main():
         widgets.remove_outliers,
         widgets.confirm_binarization,
     ]
-    scrolltab_bin = utils.create_scrolltab(widget_list=bin_widgets, name="Binarization")
+    scrolltab_bin = create_scrolltab(widget_list=bin_widgets, name="Binarization")
 
     # Evaluate Tab
     eval_widgets = [
@@ -61,7 +59,7 @@ def main():
         # widgets.BV
         # widgets.export
     ]
-    scrolltab_eval = utils.create_scrolltab(widget_list=eval_widgets, name="Evaluation")
+    scrolltab_eval = create_scrolltab(widget_list=eval_widgets, name="Evaluation")
 
     # Merge Tabs
     tabs = QTabWidget()
@@ -71,3 +69,26 @@ def main():
     tabs.addTab(scrolltab_eval, "Evaluation")
 
     return tabs
+
+
+# Helper function
+# Creates a scrollable tab containing the provided widgets for napari plugin GUI
+def create_scrolltab(
+    widget_list: list, name: str = "", min_width: int = 500
+) -> QScrollArea:
+    container = Container(
+        widgets=widget_list, layout="vertical", name=name, visible=True, labels=False
+    )
+
+    inner_widget = QWidget()
+    inner_layout = QVBoxLayout(inner_widget)
+    inner_layout.addWidget(container.native)
+
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setWidget(inner_widget)
+    scroll.setMinimumWidth(min_width)
+
+    scrolltab = scroll
+
+    return scrolltab

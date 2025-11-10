@@ -141,7 +141,7 @@ def save(
             if io.save_settings(
                 settings_directory,
                 handle,
-                setting_widgets=utils.get_setting_widgets(),
+                setting_widgets=get_setting_widgets(),
                 stack_metadata=metadata,
             ):
                 show_info(
@@ -549,3 +549,22 @@ def count_voxels(viewer: napari.Viewer):
     voxel_count = eval.voxel_count(binary_stack)
 
     return voxel_count
+
+
+# Helpers
+
+
+## Create widget list for settings
+def get_setting_widgets() -> list:
+    settings_widgets = [  # Needs to be updated if new widgets are added
+        handle_input,
+        median_filter,
+        roi_filter_2D,
+        locate_window,
+        locate_substratum,
+        increase_contrast,
+        auto_threshold,
+        remove_outliers,
+    ]
+
+    return settings_widgets

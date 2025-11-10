@@ -9,11 +9,7 @@ from functools import wraps
 
 # Third party imports
 import numpy as np
-from magicgui.widgets import Container
-from qtpy.QtWidgets import QScrollArea, QWidget, QVBoxLayout, QMessageBox
-
-# Local imports
-from oct_analysis.napari_plugin import widgets
+from qtpy.QtWidgets import QMessageBox
 
 
 # Checks whether a given stack is binarized (contains only 0 and 1 values)
@@ -60,28 +56,6 @@ def vizualize_coords(stack, coord_array, pixel_value):
     return label_stack
 
 
-# Creates a scrollable tab containing the provided widgets for napari plugin GUI
-def create_scrolltab(
-    widget_list: list, name: str = "", min_width: int = 500
-) -> QScrollArea:
-    container = Container(
-        widgets=widget_list, layout="vertical", name=name, visible=True, labels=False
-    )
-
-    inner_widget = QWidget()
-    inner_layout = QVBoxLayout(inner_widget)
-    inner_layout.addWidget(container.native)
-
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll.setWidget(inner_widget)
-    scroll.setMinimumWidth(min_width)
-
-    scrolltab = scroll
-
-    return scrolltab
-
-
 # Decorator for error handling in GUI functions
 def gui_error_handler(func):
     """
@@ -96,19 +70,3 @@ def gui_error_handler(func):
             QMessageBox.critical(None, "Error", str(e))
 
     return wrapper
-
-
-## Create widget list for settings
-def get_setting_widgets() -> list:
-    settings_widgets = [  # Needs to be updated if new widgets are added
-        widgets.handle_input,
-        widgets.median_filter,
-        widgets.roi_filter_2D,
-        widgets.locate_window,
-        widgets.locate_substratum,
-        widgets.increase_contrast,
-        widgets.auto_threshold,
-        widgets.remove_outliers,
-    ]
-
-    return settings_widgets
