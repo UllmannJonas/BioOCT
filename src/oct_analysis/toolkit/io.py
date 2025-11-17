@@ -13,9 +13,9 @@ import re
 import xml.etree.ElementTree as ET
 import zipfile
 from typing import Callable
+import warnings
 
 # third-party imports
-from napari.utils.notifications import show_error
 import nibabel as nib
 import numpy as np
 from numpy.typing import NDArray
@@ -24,26 +24,6 @@ import tifffile as tiff
 
 # Functions for loading files
 def get_load_fn(filepath: Path) -> Callable:
-    """
-    Get the appropriate loading function based on the file extension.
-    Also checks if file exists.
-
-    Parameters
-    ----------
-    filepath : Path
-        Path to the file.
-
-    Returns
-    -------
-    Callable
-        A function that can load the file.
-        Possible returned functions: load_nifti, load_oct, load_tif
-    """
-
-    if not filepath.exists():
-        show_error("File does not exist.")
-        raise FileNotFoundError(f"File not found: {filepath}")
-
     ext = "".join(filepath.suffixes).lower()
     if ext in [".nii", ".nii.gz", ".niigz"]:
         return load_nifti
@@ -52,63 +32,10 @@ def get_load_fn(filepath: Path) -> Callable:
     elif ext in [".tif", ".tiff"]:
         return load_tif
     else:
-        show_error(f"Unsupported file extension: {ext}")
         raise ValueError(f"Unsupported file extension: {ext}")
 
 
-def load_nifti(filepath: Path) -> tuple[np.ndarray, dict]:
-    """
-    Load a NIfTI file and return the image data and metadata.
-
-    Parameters
-    ----------
-    filepath : Path
-        Path to the NIfTI file.
-
-    Returns
-    -------
-    tuple
-        A tuple containing:
-        - numpy.ndarray: The image data as a numpy array.
-        - dict: Metadata including size, spacing, and filename.
-    """
-
-    img = nib.nifti1.load(str(filepath))
-    data = img.get_fdata(dtype=np.float32)
-    header = img.header
-
-    meta = {
-        "size_px": {
-            "x": int(header["dim"][1]),
-            "z": int(header["dim"][2]),
-            "y": int(header["dim"][3]),
-        },
-        "spacing_mm": {
-            "x": float(header.get_zooms()[0]),
-            "y": float(header.get_zooms()[1]),  # type: ignore
-            "z": float(header.get_zooms()[2]),  # type: ignore
-        },
-        "filename": str(filepath.stem),
-    }
-
-    return data, meta
-
-
 def load_oct(filepath: Path) -> tuple[np.ndarray, dict]:
-    """
-    Load an OCT file and extract its intensity data and metadata.
-
-    Parameters
-    ----------
-    filepath : Path
-        The path to the OCT file.
-
-    Returns
-    -------
-    tuple
-        A tuple containing the intensity data as a numpy array and a dictionary of metadata.
-    """
-
     with zipfile.ZipFile(filepath, "r") as z:
         items = z.namelist()
 
@@ -120,6 +47,7 @@ def load_oct(filepath: Path) -> tuple[np.ndarray, dict]:
         # get metadata
         if header is None:
             raise FileNotFoundError("Header.xml not found in OCT file.")
+
         with z.open(header) as xmlf:
             tree = ET.parse(xmlf)
             root = tree.getroot()
@@ -130,61 +58,59 @@ def load_oct(filepath: Path) -> tuple[np.ndarray, dict]:
 
         try:
             meta = {  # TODO: get VideoImage metadata
-                "size_px": {
-                    "z": int(get("Image/SizePixel/SizeZ")),
-                    "y": int(get("Image/SizePixel/SizeY")),
-                    "x": int(get("Image/SizePixel/SizeX")),
-                },
-                "fov_mm": {
-                    "z": float(get("Image/SizeReal/SizeZ")),
-                    "y": float(get("Image/SizeReal/SizeY")),
-                    "x": float(get("Image/SizeReal/SizeX")),
+                # safe metadata in same order that is used internally for correct referencing
+                "dimensions_px": {
+                    "B-Scans": int(get("Image/SizePixel/SizeY")),
+                    "axial": int(get("Image/SizePixel/SizeZ")),
+                    "lateral": int(get("Image/SizePixel/SizeX")),
                 },
                 "spacing_mm": {
-                    "z": float(get("Image/PixelSpacing/SizeZ")),
-                    "y": float(get("Image/PixelSpacing/SizeY")),
-                    "x": float(get("Image/PixelSpacing/SizeX")),
+                    "B-Scans": float(get("Image/PixelSpacing/SizeY")),
+                    "axial": float(get("Image/PixelSpacing/SizeZ")),
+                    "lateral": float(get("Image/PixelSpacing/SizeX")),
                 },
-                "instrument": {
-                    "model": get("Instrument/Model"),
-                    "serial": get("Instrument/Serial"),
-                    "central_wavelength": float(get("Instrument/CentralWavelength")),
-                },
-                "dtype": get("Image/DataType"),
-                "timestamp": int(get("Acquisition/Timestamp")),
-                "filename": str(Path(filepath).stem),
+                "filename": str(filepath.stem),
             }
-            # Fallback falls PixelSpacing = 0:
-            for axis in ["x", "y", "z"]:
+            # Fallback calculation falls PixelSpacing = 0:
+            fov = {
+                "B-Scans": float(get("Image/SizeReal/SizeY")),
+                "axial": float(get("Image/SizeReal/SizeZ")),
+                "lateral": float(get("Image/SizeReal/SizeX")),
+            }
+            for axis in ["B-Scans", "axial", "lateral"]:
                 if meta["spacing_mm"][axis] == 0.0:
-                    if meta["size_px"][axis] > 0 and meta["fov_mm"][axis] > 0:
+                    if meta["dimensions_px"][axis] > 0 and fov[axis] > 0:
                         meta["spacing_mm"][axis] = (
-                            meta["fov_mm"][axis] / meta["size_px"][axis]
+                            fov[axis] / meta["dimensions_px"][axis]
                         )
                     else:
-                        print(
-                            f"[WARN] Invalid pixel size for axis {axis}, fallback not possible"
+                        raise ValueError(
+                            f"Invalid pixel size for axis: {axis}, fallback not possible"
                         )
-
-        except (TypeError, ValueError, AttributeError) as e:
-            print(
-                f"[ERROR] Failed while parsing metadata: {e}. Process terminated. Please check Header.xml file."
-            )
-            return  # type: ignore
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed while parsing metadata: {e}. Process terminated. Please check OCT header."
+            ) from e
 
         # reformat intensity.data into np.ndarray
         if intensity is None:
             raise FileNotFoundError("Intensity data not found in OCT file.")
+
         with z.open(intensity) as f:
             intensity_data_raw = f.read()
-        shape = (
-            meta["size_px"]["y"],
-            meta["size_px"]["x"],
-            meta["size_px"]["z"],
-        )  # ZXY
-        intensity_data = (
-            np.frombuffer(intensity_data_raw, dtype=np.float32).copy().reshape(shape)
+        shape_thorlabs = (  # shape as stored in Thorlabs OCT binary format due to physical scanning order
+            # scanning laser goes: for every B-Scan (Y), for every lateral position (X), all axial points (Z)
+            meta["dimensions_px"]["B-Scans"],  # Y
+            meta["dimensions_px"]["lateral"],  # X
+            meta["dimensions_px"]["axial"],  # Z
         )
+        intensity_data = (
+            np.frombuffer(intensity_data_raw, dtype=np.float32)
+            .copy()
+            .reshape(shape_thorlabs)
+        )
+        # transpose to ZYX or B-Scans, Axial, Lateral for visualization in napari "left-handedness"
+        # also use this order in all further processing steps as numpy array order
         intensity_data = intensity_data.transpose(0, 2, 1)
 
         # TODO: need metadata from VideoImage first
@@ -193,246 +119,266 @@ def load_oct(filepath: Path) -> tuple[np.ndarray, dict]:
         # shape = (meta['videoimg']['width'], meta['videoimg']['height'], 4) # 4 channels (RGBA)
         # video_image = np.frombuffer(videoimage_raw, dtype=np.uint8).reshape(shape)
 
+    meta = unify_metadata(meta)
+
     return intensity_data, meta  # video_image
 
 
+def load_nifti(filepath: Path) -> tuple[np.ndarray, dict]:
+    img = nib.nifti1.load(str(filepath))
+    data = img.get_fdata(dtype=np.float32)
+
+    if data.size == 0:
+        raise ValueError(f"NIfTI file contains no data: {filepath}")
+    if data.ndim != 3:
+        raise ValueError(f"NIfTI file is not 3D: {filepath}")
+
+    zooms_all = img.header.get_zooms()
+    if len(zooms_all) < 3:
+        raise ValueError(
+            f"NIfTI file does not contain sufficient pixel spacing information: {filepath}"
+        )
+    zooms = zooms_all[:3]  # spacing_mm
+
+    dims = data.shape
+
+    try:
+        meta = {
+            "dimensions_px": {
+                "B-Scans": dims[0],
+                "axial": dims[1],
+                "lateral": dims[2],
+            },
+            "spacing_mm": {
+                "B-Scans": float(zooms[2]),
+                "axial": float(zooms[1]),
+                "lateral": float(zooms[0]),
+            },
+            "filename": str(filepath.name.replace(".nii.gz", "").replace(".nii", "")),
+        }
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed while parsing metadata: {e}. Process terminated. Please check NIfTI header."
+        ) from e
+
+    meta = unify_metadata(meta)
+
+    return data, meta
+
+
 def load_tif(file_path: Path) -> tuple[np.ndarray, dict]:
-    """
-    Load a TIFF file and extract its image data and metadata.
-
-    Parameters
-    ----------
-    file_path : Path
-        The path to the TIFF file.
-
-    Returns
-    -------
-    tuple
-        A tuple containing the image data as a numpy array and a dictionary of metadata.
-    """
-
     with tiff.TiffFile(file_path) as tif:
-        page = tif.pages[0]  # first page
-        tags = page.tags  # type: ignore
-
-        # Extract and parse ImageDescription metadata if available
-        description = tags.get("ImageDescription")  # type: ignore
-        imagej_metadata = {}
-        if description:
-            for line in description.value.splitlines():
-                if "=" in line:
-                    key, value = line.split("=", 1)
-                    imagej_metadata[key.strip()] = value.strip()
-
-        # Read stack data
         stack = tif.asarray()
+
         if stack is None:
             raise ValueError(f"Failed to read image from {file_path}")
-        if stack.dtype != np.float32:
-            raise ValueError(f"Image stack is not in float32 format: {file_path}")
 
-        # Parse ImageJ metadata
-        metadata = {
-            "Z": int(imagej_metadata.get("slices", 1)),
-            "Y": page.tags["ImageLength"].value,  # type: ignore
-            "X": page.tags["ImageWidth"].value,  # type: ignore
-            "shape": tif.series[0].shape,
-            "dtype": str(tif.series[0].dtype),
-            "axes": tif.series[0].axes,
-            "XResolution": page.tags["XResolution"].value,  # type: ignore
-            "YResolution": page.tags["YResolution"].value,  # type: ignore
-            "unit": imagej_metadata.get("unit", None),
-            "spacing": float(imagej_metadata.get("spacing", 1.0)),
-        }
+        meta = {}
+        try:
+            # Extract and parse ImageDescription metadata if available
+            description = tif.pages[0].tags.get("ImageDescription")  # type: ignore
+            if description:
+                description_str = description.value
+            else:
+                raise ValueError("ImageDescription tag not found.")
+        except Exception as e:
+            raise RuntimeError(f"Failed to read ImageDescription tag: {e}") from e
 
-    return stack, metadata
+        try:
+            meta = json.loads(description_str)
+        except json.JSONDecodeError:
+            # Fallback: try to parse as ImageJ metadata
+            ij_meta = {}
+            for line in description_str.splitlines():
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    ij_meta[key.strip()] = value.strip()
+            meta = {
+                "dimensions_px": {
+                    "B-Scans": int(ij_meta.get("slices", 1)),
+                    "axial": int(ij_meta.get("ImageLength", 1)),
+                    "lateral": int(ij_meta.get("ImageWidth", 1)),
+                },
+                "spacing_mm": {
+                    "B-Scans": float(ij_meta.get("spacing", 1.0)),
+                    "axial": float(ij_meta.get("spacing", 1.0)),
+                    "lateral": float(ij_meta.get("spacing", 1.0)),
+                },
+                "filename": str(Path(file_path).stem),
+            }
+            warnings.warn(
+                f"imagej metadata detected and used as fallback. pixel spacing is not correct: {meta['spacing_mm']}",
+                UserWarning,
+            )
+
+    meta = unify_metadata(meta)
+
+    return stack, meta
 
 
 # Always normalize to [0,1]. all data that is loaded!
-def normalize(stack: NDArray[np.float32]) -> NDArray[np.float32]:
-    stack_norm = (stack - np.min(stack)) / (np.max(stack) - np.min(stack))
-    return stack_norm.astype(np.float32)
+def normalize(stack: NDArray) -> NDArray[np.float32]:
+    stack = stack.astype(np.float32)
+    stack = (stack - np.min(stack)) / (np.max(stack) - np.min(stack))
+    return stack
 
 
 # Functions for saving files
 def get_save_fn(stack: np.ndarray, metadata: dict | None, fmt: str) -> Callable:
-    """
-    Get the appropriate saving function based on the selected file format.
-
-    Parameters
-    ----------
-    stack : np.ndarray
-        The image stack to be saved.
-    metadata : dict | None
-        Metadata associated with the image stack.
-    fmt : str
-        The desired file format for saving (e.g., ".nii", ".tif").
-
-    Returns
-    -------
-    Callable
-        A function that can save the file.
-        Possible returned functions: save_as_nifti, save_as_tiff
-    """
-
     if metadata is None or not isinstance(metadata, dict):
-        show_error(
-            "Metadata is required for saving. Error in metadata format/existence."
+        raise ValueError(
+            "Metadata is required for saving. Metadata is currently None or invalid."
         )
-        raise ValueError("Metadata is required for saving.")
-    if not stack:
-        show_error("Stack is required for saving.")
-        raise ValueError("Stack is required for saving.")
+    if not stack.size:
+        raise ValueError("Stack is required for saving. Stack is currently empty.")
 
     if fmt in [".nii", ".nii.gz", ".niigz"]:
         return save_as_nifti
     elif fmt in [".tif", ".tiff"]:
         return save_as_tiff
     else:
-        show_error(f"Unsupported file format for saving: {fmt}")
         raise ValueError(f"Unsupported file format for saving: {fmt}")
 
 
 def save_as_nifti(
     stack: np.ndarray, stack_metadata: dict, binary_stack: np.ndarray, output_dir: Path
 ) -> bool:
-    """
-    Save the image stack and its binary mask as NIfTI files.
-
-    Parameters
-    ----------
-    stack : np.ndarray
-        The image stack to be saved.
-    stack_metadata : dict
-        Metadata associated with the image stack.
-    binary_stack : np.ndarray
-        The binary mask of the image stack to be saved.
-    output_dir : Path
-        The directory where the NIfTI files will be saved.
-
-    Returns
-    -------
-    bool
-        True if saving was successful, False otherwise.
-    """
-
     spacing = stack_metadata["spacing_mm"]
     if any(v == 0 for v in spacing.values()):
-        affine = np.diag([0.01, 0.01, 0.01, 1.0])
-        print("[WARN]: Fallback values used for pixel spacing!")
+        fallback_values = [0.01, 0.01, 0.01, 1.0]
+        affine = np.diag(fallback_values)
+        warnings.warn(
+            f"[WARN]: Fallback values used for pixel spacing!\nValues used: {fallback_values}",
+            UserWarning,
+        )
     else:
-        affine = np.diag([spacing["x"], spacing["y"], spacing["z"], 1.0])
+        affine = np.diag(
+            [
+                spacing["lateral"],  # X
+                spacing["axial"],  # Y
+                spacing["B-Scans"],  # Z
+                1.0,
+            ]
+        )
 
     nii_stack = nib.nifti1.Nifti1Image(stack.astype(np.float32), affine)
     nii_binary = nib.nifti1.Nifti1Image(binary_stack.astype(np.uint8), affine)
 
-    # metadaten für nifti header
-    model = stack_metadata["instrument"]["model"]
-    wl = stack_metadata["instrument"]["central_wavelength"]
-    timestamp = stack_metadata["timestamp"]
-    descrip = f"{model}_{wl:.0f}nm_{timestamp}"
-
-    nii_stack.header["descrip"] = descrip[:80]
-    nii_binary.header["descrip"] = descrip[:80]
-
     # speichern
     output_dir.mkdir(parents=True, exist_ok=True)
+    original_filepath = output_dir / f"{stack_metadata['filename']}.nii.gz"
+    binary_filepath = output_dir / f"{stack_metadata['filename']}_mask.nii.gz"
     try:
-        nib.save(nii_stack, output_dir / f"{stack_metadata['filename']}.nii.gz")  # type: ignore
-        nib.save(nii_binary, output_dir / f"{stack_metadata['filename']}_mask.nii.gz")  # type: ignore
+        nib.save(nii_stack, original_filepath)  # type: ignore
+        nib.save(nii_binary, binary_filepath)  # type: ignore
         return True
     except Exception as e:
-        show_error(f"Failed to save NIfTI files: {e}")
-        return False
+        raise RuntimeError(f"Failed to save NIfTI files: {e}") from e
 
 
 def save_as_tiff(
     stack: np.ndarray, metadata: dict, binary_stack: np.ndarray, output_dir: Path
 ) -> bool:
-    """
-    Save the image stack and its binary mask as TIFF files.
-
-    Parameters
-    ----------
-    stack : np.ndarray
-        The image stack to be saved.
-    metadata : dict
-        Metadata associated with the image stack.
-    binary_stack : np.ndarray
-        The binary mask of the image stack to be saved.
-    output_dir : Path
-        The directory where the TIFF files will be saved.
-
-    Returns
-    -------
-    bool
-        True if saving was successful, False otherwise.
-    """
-
     output_dir.mkdir(parents=True, exist_ok=True)
+    path_original = output_dir / f"{metadata.get('filename', 'unknown')}.tiff"
+    path_binary = output_dir / f"{metadata.get('filename', 'unknown')}_binary.tiff"
+
     try:
-        with tiff.TiffWriter(output_dir / f"{metadata['filename']}.tiff") as tif:
-            tif.write(stack, photometric="minisblack", metadata=metadata)
-        with tiff.TiffWriter(
-            output_dir / f"{metadata['filename']}_binary.tiff"
-        ) as bin_tif:
-            bin_tif.write(binary_stack, photometric="minisblack", metadata=metadata)
+        with tiff.TiffWriter(path_original) as tif:
+            tif.write(
+                stack, photometric="minisblack", metadata=metadata
+            )  # writes metadata as JSON
+        with tiff.TiffWriter(path_binary) as bin_tif:
+            bin_tif.write(
+                binary_stack, photometric="minisblack", metadata=metadata
+            )  # writes metadata as JSON
         return True
     except Exception as e:
-        show_error(f"Failed to save TIFF files: {e}")
-        return False
+        raise RuntimeError(f"Failed to save TIFF files: {e}") from e
 
 
 # Functions for saving/loading settings
 def save_settings(
-    settings_file, user_handle: str, setting_widgets: list, stack_metadata: dict | None
+    output_dir,
+    user_handle: str,
+    setting_widgets: list,
+    filename: str,
+    thresholding_method: str | None = None,
 ) -> bool:
-    settings = {}
-
-    if stack_metadata is None or not isinstance(stack_metadata, dict):
-        show_error(
-            "Metadata is required for saving settings. Error in metadata format/existence."
-        )
-        raise ValueError("Metadata is required for saving settings.")
-
-    filename_image = stack_metadata["filename"]
-    match = re.search(r"_(\d+)_", filename_image)
+    match = re.search(r"_(\d+)_", filename)
     image_id = (
         match.group(1) if match else "unknown"
     )  # Read image ID from filename, e.g. "Mina_0054_Mode3D.oct" -> "0054"
+    warnings.warn('Filename has no digit-ID, ID set to "unknown".')
 
     filename = f"settings_{image_id}_{user_handle}.json"
-    settings_file = Path(settings_file) / filename
+    settings_file = Path(output_dir) / filename
 
-    for widget in setting_widgets:
-        params = {}
-        # Die ursprünglichen Parameter stehen in __signature__.parameters
-        for param in widget.__signature__.parameters:
-            if param == "viewer":
-                continue  # viewer ist nicht serialisierbar
-            w = widget.get_widget(param)
-            if w is not None:
-                val = w.value
-                if isinstance(val, Path):
-                    val = str(val)
-                params[param] = val
-        settings[widget.name or widget.__class__.__name__] = params
+    settings = {}
+    try:
+        for widget in setting_widgets:
+            params = {}
+            # Die ursprünglichen Parameter stehen in __signature__.parameters
+            for param in widget.__signature__.parameters:
+                if param == "viewer":
+                    continue  # viewer ist nicht serialisierbar
+                w = widget.get_widget(param)
+                if w is not None:
+                    val = w.value
+                    if isinstance(val, Path):
+                        val = str(val)
+                    params[param] = val
+            settings[widget.name or widget.__class__.__name__] = params
+        settings["thresholding_method"] = thresholding_method
+    except Exception as e:
+        raise RuntimeError(f"Error while collecting settings: {e}") from e
 
     try:
         with open(settings_file, "w") as f:
             json.dump(settings, f, indent=4)
             return True
     except Exception as e:
-        show_error(f"Failed to save settings: {e}")
-        return False
+        raise RuntimeError(f"Failed to save settings: {e}") from e
 
 
 def load_settings(settings_file: Path) -> dict:
     if not settings_file.exists():
-        show_error(f"Settings file does not exist: {settings_file}")
         raise FileNotFoundError(f"Settings file not found: {settings_file}")
 
     with open(settings_file, "r") as f:
         settings = json.load(f)
 
     return settings
+
+
+# Helpers used only here
+
+
+## Unify metdata
+def unify_metadata(meta: dict) -> dict:
+    """
+    Keep only 'dimensions_px', 'spacing_mm', 'filename'.
+    Round floats in spacing_mm to 5 decimals.
+    Example metadata dict:
+    {
+        'dimensions_px': {
+            'B-Scans': 750,
+            'axial': 520,
+            'lateral': 500
+        },
+        'spacing_mm': {
+            'B-Scans': 0.00733,
+            'axial': 0.00417,
+            'lateral': 0.01700
+        },
+        'filename': 'test-napari'
+    }
+    """
+    unified = {
+        "dimensions_px": meta.get("dimensions_px", {}),
+        "spacing_mm": {
+            k: round(float(v), 5) for k, v in meta.get("spacing_mm", {}).items()
+        },
+        "filename": meta.get("filename", ""),
+    }
+    return unified

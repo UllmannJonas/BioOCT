@@ -6,6 +6,8 @@ Helper functions for oct_analysis toolkit.
 # Python native imports
 from typing import Literal
 from functools import wraps
+import warnings
+import traceback
 
 # Third party imports
 import numpy as np
@@ -20,11 +22,17 @@ def binary_check(binarized_stack: np.ndarray):
         )
 
 
+# Checks layer existence for certain functions as precondition
+def layer_exists_check(viewer, layer_name: str):
+    if layer_name not in viewer.layers:
+        raise ValueError(f"Layer missing for this operation: {layer_name}.")
+
+
 # Updates or creates an image layer in the napari viewer
 def update_layer(
     viewer,
     data: np.ndarray,
-    type: Literal["image", "label"],
+    type: Literal["image", "label"] = "image",
     metadata: dict | np.ndarray | None = None,
     name: str = "",
     visible=True,
@@ -44,7 +52,9 @@ def update_layer(
 
 
 # Create a label stack from coordinate array for visualization
-def vizualize_coords(stack, coord_array, pixel_value):
+def vizualize_coords(
+    stack: np.ndarray, coord_array: np.ndarray, pixel_value: int
+) -> np.ndarray:
     z, x = coord_array.shape
     y = stack.shape[1]
     label_stack = np.zeros((z, y, x), dtype=np.uint8)
@@ -59,14 +69,39 @@ def vizualize_coords(stack, coord_array, pixel_value):
 # Decorator for error handling in GUI functions
 def gui_error_handler(func):
     """
-    Decorator to handle errors in GUI functions and display them using a QMessageBox.
+    Decorator to handle errors and warnings in GUI functions.
+    - Exceptions: show critical QMessageBox and stop execution.
+    - Warnings: show warning QMessageBox but continue execution.
     """
 
     @wraps(func)
     def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            QMessageBox.critical(None, "Error", str(e))
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            result = None
+            try:
+                result = func(*args, **kwargs)
+            except Exception as e:
+                tb = traceback.format_exc()
+
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Icon.Critical)
+                msg.setWindowTitle("Error!")
+                msg.setText(f"Execution was stopped!\nERROR: {str(e)}")
+                msg.setDetailedText(tb)
+                msg.setMinimumSize(500, 200)  # Breite/Höhe anpassen
+                msg.exec()
+
+            for w in caught_warnings:
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Icon.Warning)
+                msg.setWindowTitle("Warning!")
+                msg.setText(
+                    f"Execution continued, but something happened:\nWARNING: {str(w.message)}"
+                )
+                msg.setMinimumSize(500, 200)  # Breite/Höhe anpassen
+                msg.exec()
+
+            return result
 
     return wrapper
