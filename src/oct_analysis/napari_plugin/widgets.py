@@ -8,14 +8,16 @@ The widgets are then assembled into scrollable tabs in __init__.py.
 
 # Python native imports
 from pathlib import Path
-from typing import Optional
+from functools import partial
 
 # Third party imports
 from magicgui import magicgui
+from magicgui.widgets import Container, PushButton, Label, FloatSpinBox
 import napari
 from napari.utils.notifications import show_info
 import numpy as np
 from qtpy.QtWidgets import QFileDialog
+
 
 # Local imports
 from oct_analysis.toolkit import utils, io, pre, bin, eval
@@ -25,6 +27,7 @@ from oct_analysis.toolkit.utils import gui_error_handler
 # Initialize globals
 _last_load_path_file = str(Path.home())  # path remembering
 _filename = ""
+_current_thresholding_method = None
 
 
 # Widgets for I/O tab
@@ -34,7 +37,8 @@ def clear_layers(viewer: napari.Viewer):
     show_info("Cleared all layers.")
 
 
-@magicgui(call_button="Load OCT/NIfTI/TIF")
+@magicgui(call_button="Load OCT/NIfTI/TIFF files")
+@gui_error_handler
 def load_file(viewer: napari.Viewer):
     global _last_load_path_file
 
@@ -61,102 +65,91 @@ def load_file(viewer: napari.Viewer):
     utils.update_layer(
         viewer,
         stack_norm,
-        type="image",
         metadata=metadata,
-        name="original",
-        visible=True,
+        name=f"original ({_filename})",
+        visible=False,
     )
-    utils.update_layer(
-        viewer,
-        stack_norm,
-        type="image",
-        name="working copy",
-        visible=True,
-    )
+    utils.update_layer(viewer, np.copy(stack_norm), name="working copy")
 
-    #! Napari X, Y and Z axes do not correspond to X, Y and Z axes of the OCT file!
-    # Update GUI widget values with the actual size of the OCT images
-    x_max = metadata.get("size_px", {}).get("y", 1000) - 1
-    ignore_slices.xend.max = x_max
-    y_max = metadata.get("size_px", {}).get("z", 1000) - 1
-    locate_window.ymin.max = y_max - 1
-    locate_window.ymax.max = y_max
-    locate_substratum.ymin.max = y_max - 1
-    locate_substratum.ymax.max = y_max
-    locate_substratum.ymax.value = y_max
+    print(metadata)
+
+    # stack-y apparently napari-x. stack-z apparently napari-y
+    update_widget_presets(stack_norm)
 
     show_info(f"Loaded {_filename} successfully.")
 
 
 @magicgui(
-    input_text={"widget_type": "LineEdit", "label": "User handle"},
-    auto_call=True,  # Funktion wird bei jeder Änderung aufgerufen
-)
-def handle_input(input_text: str):
-    return input_text
-
-
-@magicgui(
-    call_button="Save Original & Binary",
-    file_format={
-        "widget_type": "ComboBox",
-        "choices": [".nii.gz", ".nii", ".niigz", ".tif", ".tiff"],
-        "value": ".nii.gz",
-        "label": "File Format",
+    call_button="Save Original and Binary",
+    save_nifti={
+        "widget_type": "CheckBox",
+        "text": "Save as NIfTI (.nii.gz)",
+        "value": True,
+        "enabled": False,
+    },
+    save_tiff={
+        "widget_type": "CheckBox",
+        "text": "Save as TIFF (.tiff) [NOT RECOMMENDED]",
+        "value": False,
     },
     output_directory={
         "widget_type": "FileEdit",
         "mode": "d",
         "value": str(Path.home()),
     },
-    save_settings={"widget_type": "CheckBox", "text": "Save settings", "value": True},
-    settings_directory={
+)
+@gui_error_handler
+def save(
+    save_nifti,
+    save_tiff,
+    output_directory,
+    viewer: napari.Viewer,
+):
+    utils.layer_exists_check(viewer, f"original ({_filename})")
+    utils.layer_exists_check(viewer, "binary")
+
+    original_layer = viewer.layers[f"original ({_filename})"]
+    original_stack = original_layer.data
+
+    binary_stack = viewer.layers["binary"].data
+
+    if save_tiff:
+        io.save_as_tiff(
+            original_stack, original_layer.metadata, binary_stack, output_directory
+        )
+        show_info("Saved as TIFF successfully.")
+
+    io.save_as_nifti(
+        original_stack, original_layer.metadata, binary_stack, output_directory
+    )
+    show_info("Saved as NIfTI successfully.")
+
+
+@magicgui(
+    call_button="Export Current Settings as JSON",
+    user_handle={"widget_type": "LineEdit", "label": "User handle"},
+    output_directory={
         "widget_type": "FileEdit",
+        "label": "Output directory",
         "mode": "d",
         "value": str(Path.home()),
     },
 )
-def save(
-    file_format,
-    output_directory,
-    save_settings,
-    settings_directory,
-    viewer: napari.Viewer,
-):
-    original_layer = viewer.layers["original"]
-    if original_layer is not None:
-        original_stack = original_layer.data
-        metadata = original_layer.metadata.get("original")
-    else:
-        show_info("Original layer not found. Please load an OCT file first.")
-        return
-
-    binary_stack = viewer.layers["binary"].data
-
-    save_fn = io.get_save_fn(original_stack, metadata, file_format)
-    if save_fn(original_stack, metadata, binary_stack, output_directory):
-        viewer.layers.clear()
-        if save_settings:
-            handle = handle_input.input_text.value.strip()
-            if io.save_settings(
-                settings_directory,
-                handle,
-                setting_widgets=get_setting_widgets(),
-                stack_metadata=metadata,
-            ):
-                show_info(
-                    f"Saved stack and binary mask to {output_directory} and settings to {settings_directory}"
-                )
-        else:
-            show_info(f"Saved stack and binary mask to {output_directory})")
+@gui_error_handler
+def export_settings(output_directory, user_handle):
+    io.save_settings(
+        output_directory,
+        user_handle,
+        get_setting_widgets(),
+        _filename,
+        _current_thresholding_method,
+    )
 
 
 @magicgui(call_button="Load settings.json")
 @gui_error_handler
 def load_settings(viewer: napari.Viewer):
-    if "original" not in viewer.layers:
-        show_info("OCT File has to be loaded before loading settings.")
-        return
+    utils.layer_exists_check(viewer, f"original ({_filename})")
 
     filepath, _ = QFileDialog.getOpenFileName(
         None, "Select settings file", str(Path.home()), "Format (*.json)"
@@ -166,13 +159,10 @@ def load_settings(viewer: napari.Viewer):
         return
 
     settings = io.load_settings(Path(filepath))
-    if not settings:
-        show_info("No valid settings found in the file.")
-        return
 
     # Update the widgets with the loaded settings
-    user_handle = settings.get("handle_input", {}).get("input_text", "")
-    handle_input.input_text.value = user_handle
+    handle = settings.get("user_handle", "")
+    export_settings.user_handle.value = handle
     median_filter.filter_size.value = settings.get("median_filter", {}).get(
         "filter_size", 3
     )
@@ -193,7 +183,7 @@ def load_settings(viewer: napari.Viewer):
         "percentile", 0.5
     )
 
-    show_info(f"Loaded settings from {filepath} for user {user_handle}")
+    show_info(f"Loaded settings from {filepath} for user {handle}")
 
 
 """
@@ -247,11 +237,10 @@ def apply_loaded_settings_bulk(viewer: napari.Viewer):
 
 
 # Widgets for pre-processing tab
-#! TBD if keep this
 @magicgui(
-    call_button="Ignore Slices",
+    call_button="Confirm B-Scan Selection",
     xstart={
-        "widget_type": "SpinBox",
+        "widget_type": "Slider",
         "min": 0,
         "max": 1000,
         "step": 1,
@@ -259,7 +248,7 @@ def apply_loaded_settings_bulk(viewer: napari.Viewer):
         "label": "First Slice",
     },
     xend={
-        "widget_type": "SpinBox",
+        "widget_type": "Slider",
         "min": 0,
         "max": 1000,
         "step": 1,
@@ -268,19 +257,86 @@ def apply_loaded_settings_bulk(viewer: napari.Viewer):
     },
     # slice={'widget_type': 'LineEdit', 'label': 'Input slice number to ignore'}
 )
-def ignore_slices(xstart, xend, viewer: napari.Viewer):
+def keep_slices(xstart, xend, viewer: napari.Viewer):
+    for lay in viewer.layers:
+        visibility_before = lay.visible
+        lay.visible = True
+
+        stack = lay.data
+        reduced_stack = pre.reduce_stack(stack, xstart, xend)
+        lay.data = reduced_stack
+
+        lay.visible = visibility_before
+
+    n_slices = xend - xstart
+    keep_slices.xend.max = n_slices
+    keep_slices.xstart.max = n_slices
+    keep_slices.xstart.value = 0
+
+
+@magicgui(
+    call_button="Locate Window",
+    ymin={"widget_type": "SpinBox", "min": 0, "max": 1000, "step": 1, "value": 0},
+    ymax={"widget_type": "SpinBox", "min": 0, "max": 1001, "step": 1, "value": 100},
+    y_offset={"widget_type": "SpinBox", "min": -20, "max": 20, "step": 1, "value": 0},
+)
+@gui_error_handler
+def locate_window(viewer: napari.Viewer, ymin=0, ymax=100, y_offset=0):
+    stack = viewer.layers["working copy"].data
+    reference_stack = viewer.layers[f"original ({_filename})"].data
+
+    window_coords = pre.locate_window(stack, ymin, ymax, y_offset)
+    labels = utils.vizualize_coords(reference_stack, window_coords, pixel_value=1)
+
+    window_coords = {"window_coords": window_coords.tolist()}
+    utils.update_layer(
+        viewer,
+        labels,
+        type="label",
+        metadata=window_coords,
+        name="window_coords",
+    )
+
+
+@magicgui(
+    cutoff_y={
+        "label": "Manual Window Cutoff",
+        "min": 0,
+        "max": 300,
+        "step": 1,
+        "widget_type": "Slider",
+    },
+    auto_call=True,
+)
+def mark_cutoff(viewer: napari.Viewer, cutoff_y: int = 0):
+    reference_stack = viewer.layers[f"original ({_filename})"].data
+
+    window_coords = pre.get_cutoff(reference_stack, cutoff_y)
+    labels = utils.vizualize_coords(reference_stack, window_coords, pixel_value=1)
+
+    window_coords = {"window_coords": window_coords.tolist()}
+    utils.update_layer(
+        viewer,
+        labels,
+        type="label",
+        metadata=window_coords,
+        name="window_coords",
+    )
+
+
+@magicgui(call_button="Zero Out Window")
+@gui_error_handler
+def zero_out_window(viewer: napari.Viewer):
+    utils.layer_exists_check(viewer, "window_coords")
+
+    coords_layer = viewer.layers["window_coords"]
+    window_coords = np.array(coords_layer.metadata["window_coords"])
     stack = viewer.layers["working copy"].data
 
-    if xstart > xend or xend > stack.shape[0]:
-        show_info("Invalid slice range.")
-        return
+    no_window = pre.zero_out_window(stack, window_coords)
 
-    slices = list(range(xstart, xend + 1))
-    modified_stack = pre.zero_out_ignored_slices(stack, slices)
-
-    utils.update_layer(
-        viewer, modified_stack, type="image", name="base_reduced", visible=False
-    )
+    utils.update_layer(viewer, no_window, name="working copy")
+    viewer.layers.remove(coords_layer)
 
 
 @magicgui(
@@ -299,19 +355,11 @@ def median_filter(viewer: napari.Viewer, filter_size=3):
 
     median_filtered = pre.median_blur(stack, filter_size)
 
-    utils.update_layer(
-        viewer, median_filtered, type="image", name="working copy", visible=True
-    )
-
-    #! Keep or remove?
-    if "bin_base" in viewer.layers:
-        show_info(
-            "Target layer updated. Reapply >>Zero Out Substratum<< to update bin_base layer."
-        )
+    utils.update_layer(viewer, median_filtered, name="working copy")
 
 
 @magicgui(
-    call_button="Enhance horizontal Edges",
+    call_button="Enhance Horizontal Edges",
     roi_size={
         "widget_type": "SpinBox",
         "min": 1,
@@ -326,186 +374,89 @@ def roi_filter_2D(viewer: napari.Viewer, roi_size=5):
 
     edge_enhanced = pre.roi_filter_2D(stack, roi_size)
 
-    utils.update_layer(
-        viewer, edge_enhanced, type="image", name="working copy", visible=False
-    )
-
-
-@magicgui(
-    call_button="Locate Window",
-    ymin={"widget_type": "SpinBox", "min": 0, "max": 1000, "step": 1, "value": 0},
-    ymax={"widget_type": "SpinBox", "min": 0, "max": 1001, "step": 1, "value": 100},
-    y_offset={"widget_type": "SpinBox", "min": -100, "max": 100, "step": 1, "value": 0},
-)
-def locate_window(viewer: napari.Viewer, ymin=0, ymax=100, y_offset=0):
-    if ymin >= ymax:
-        show_info("ymin must be less than ymax.")
-        return
-
-    stack = viewer.layers["target"].data
-    reference_stack = viewer.layers["original"].data
-
-    window_coords = pre.locate_window(stack, ymin, ymax, y_offset)
-
-    labels = utils.vizualize_coords(reference_stack, window_coords, pixel_value=1)
-
-    utils.update_layer(
-        viewer,
-        labels,
-        type="label",
-        metadata=window_coords,
-        name="window_coords",
-        visible=True,
-    )
-
-
-@magicgui(call_button="Zero Out Window")
-def zero_out_window(viewer: napari.Viewer):
-    if "window_coords" not in viewer.layers:
-        show_info("Window has to be located first.")
-        return
-
-    coords_layer = viewer.layers["window_coords"]
-    window_coords = coords_layer.metadata.get("window_coords")
-    stack = viewer.layers["working copy"].data
-
-    no_window = pre.zero_out_window(stack, window_coords)
-
-    utils.update_layer(
-        viewer, no_window, type="image", name="working copy", visible=True
-    )
-    viewer.layers.remove(coords_layer)
-
-    #! wth is binbase
-    if "bin_base" in viewer.layers:
-        show_info(
-            "Target layer updated. Reapply >>Zero Out Substratum<< to update bin_base layer."
-        )
+    utils.update_layer(viewer, edge_enhanced, name="working copy")
 
 
 @magicgui(
     call_button="Locate Substratum",
-    ymin={"widget_type": "SpinBox", "min": 0, "max": 1000, "step": 1, "value": 200},
-    ymax={"widget_type": "SpinBox", "min": 0, "max": 1000, "step": 1, "value": 1000},
-    y_offset={"widget_type": "SpinBox", "min": -100, "max": 100, "step": 1, "value": 0},
+    ymin={"widget_type": "Slider", "min": 0, "max": 1000, "step": 1, "value": 200},
+    ymax={"widget_type": "Slider", "min": 0, "max": 1000, "step": 1, "value": 1000},
+    y_offset={"widget_type": "SpinBox", "min": -20, "max": 20, "step": 1, "value": 0},
 )
+@gui_error_handler
 def locate_substratum(viewer: napari.Viewer, ymin=0, ymax=1000, y_offset=0):
-    if ymin >= ymax:
-        show_info("ymin must be less than ymax.")
-        return
-
     stack = viewer.layers["working copy"].data
-    reference_stack = viewer.layers["original"].data
+    reference_stack = viewer.layers[f"original ({_filename})"].data
 
     substratum_coords = pre.locate_substratum(stack, ymin, ymax, y_offset)
     labels = utils.vizualize_coords(reference_stack, substratum_coords, pixel_value=2)
 
+    substratum_coords = {"substratum_coords": substratum_coords.tolist()}
     utils.update_layer(
         viewer,
         labels,
         type="label",
         metadata=substratum_coords,
         name="substratum_coords",
-        visible=True,
     )
 
 
 @magicgui(call_button="Zero Out Substratum")
+@gui_error_handler
 def zero_out_substratum(viewer: napari.Viewer):
-    if "substratum_coords" not in viewer.layers:
-        show_info("Substratum has to be located first.")
-        return
+    utils.layer_exists_check(viewer, "substratum_coords")
 
     coords_layer = viewer.layers["substratum_coords"]
-    substratum_coords = coords_layer.metadata.get("substratum_coords")
+    substratum_coords = np.array(coords_layer.metadata["substratum_coords"])
     stack = viewer.layers["working copy"].data
 
     no_substratum = pre.zero_out_substratum(stack, substratum_coords)
 
-    utils.update_layer(
-        viewer, no_substratum, type="image", name="working copy", visible=True
-    )
+    utils.update_layer(viewer, no_substratum, name="working copy")
     viewer.layers.remove(coords_layer)
+
+
+@magicgui(call_button="Confirm Segmentation")
+def confirm_segmentation(viewer: napari.Viewer):
+    current = viewer.layers["working copy"]
+    zeroed_out_stack = current.data
+    reference_stack = viewer.layers[f"original ({_filename})"].data
+
+    bin_base_stack = np.where(zeroed_out_stack == 0, 0, reference_stack)
+
+    utils.update_layer(viewer, bin_base_stack, name="working copy")
 
 
 # Widgets for binarization tab
 @magicgui(
     call_button="Increase contrast",
     percentile={
-        "widget_type": "FloatSpinBox",
+        "widget_type": "FloatSlider",
         "min": 0.0,
-        "max": 10.0,
-        "step": 0.1,
-        "value": 0.5,
-    },
-    show_histograms={
-        "widget_type": "CheckBox",
-        "text": "Show histograms",
-        "value": False,
+        "max": 1,
+        "value": 0.1,
     },
 )
-def increase_contrast(viewer: napari.Viewer, percentile=0.5, show_histograms=False):
+def increase_contrast(viewer: napari.Viewer, percentile=0.1):
     stack = viewer.layers["working copy"].data
 
     contrast_enhanced = bin.increase_contrast(stack, percentile)
-    if show_histograms:
-        bin.plot_histograms(stack, contrast_enhanced, percentile)
 
-    utils.update_layer(
-        viewer, contrast_enhanced, type="image", name="working copy", visible=True
-    )
+    utils.update_layer(viewer, contrast_enhanced, name="working copy")
 
 
-@magicgui(call_button="Auto-Threshold", result_widget=True)
-def auto_threshold(viewer: napari.Viewer, thresh: Optional[float] = None) -> float:
+@magicgui(call_button="Auto-Threshold")
+def auto_threshold(viewer: napari.Viewer):
     stack = viewer.layers["working copy"].data
 
-    if thresh is None:
-        thresh = bin.get_threshold(stack)
+    thresholds = bin.get_threshold(stack)
 
-    binary = (stack > thresh).astype(np.uint8)
-    binary[stack == 0] = 0  # Keep zero pixels as zero
-
-    utils.update_layer(viewer, binary, type="image", name="binary", visible=True)
-
-    return thresh
-
-
-# @magicgui(
-#     threshold={
-#         "widget_type": "FloatSpinBox",
-#         "min": 0.0,
-#         "max": 1.0,
-#         "step": 0.001,
-#         "value": 0.700,
-#         "label": "Threshold",
-#     },
-#     auto_call=True,
-# )
-# def binarize(viewer: napari.Viewer, threshold=0.7):
-#     if "bin_base" not in viewer.layers:
-#         show_info("Use >>Increase Contrast<< first.")
-#         return
-
-#     stack = viewer.layers["bin_base"].data
-
-#     # TODO: finetuning threshold toggle nur auf aktuellem slice
-#     binary = (stack > threshold).astype(np.uint8)
-
-#     if "binary" in viewer.layers:
-#         viewer.layers["binary"].data = binary
-#     else:
-#         viewer.add_labels(binary, name="binary", visible=True)
-
-#     for lay in viewer.layers:
-#         lay.visible = False
-#     viewer.layers["binary"].visible = True
-#     viewer.layers["binary"].opacity = 0.8
-#     viewer.layers["bin_base"].visible = True
+    widget = create_threshold_widget(viewer, thresholds, stack)
+    viewer.window.add_dock_widget(widget, name="Threshold Results")
 
 
 @magicgui(
-    call_button="Apply",
+    call_button="Remove Outliers",
     outlier_size={
         "widget_type": "SpinBox",
         "min": 0,
@@ -515,10 +466,9 @@ def auto_threshold(viewer: napari.Viewer, thresh: Optional[float] = None) -> flo
         "label": "Outlier Size",
     },
 )
+@gui_error_handler
 def remove_outliers(viewer: napari.Viewer, outlier_size=2):
-    if "binary" not in viewer.layers:
-        show_info("Binarize first.")
-        return
+    utils.layer_exists_check(viewer, "binary")
 
     stack = viewer.layers["binary"].data
 
@@ -528,22 +478,20 @@ def remove_outliers(viewer: napari.Viewer, outlier_size=2):
 
 
 @magicgui(call_button="Confirm Binarization")
+@gui_error_handler
 def confirm_binarization(viewer: napari.Viewer):
-    if "binary" not in viewer.layers:
-        show_info("Binarize first.")
-        return
+    utils.layer_exists_check(viewer, "binary")
 
     for lay in list(viewer.layers):
-        if lay.name not in ["binary", "original"]:
+        if lay.name not in ["binary", f"original ({_filename})"]:
             viewer.layers.remove(lay)
 
 
 # Widgets for evaluation tab
 @magicgui(call_button="Count Voxels", result_widget=True)
+@gui_error_handler
 def count_voxels(viewer: napari.Viewer):
-    if "binary" not in viewer.layers:
-        show_info("Binarized layer is required.")
-        return
+    utils.layer_exists_check(viewer, "binary")
 
     binary_stack = viewer.layers["binary"].data
     voxel_count = eval.voxel_count(binary_stack)
@@ -551,20 +499,90 @@ def count_voxels(viewer: napari.Viewer):
     return voxel_count
 
 
-# Helpers
+# --- Helpers ---
 
 
-## Create widget list for settings
+## Create widget list for settings-functionality
 def get_setting_widgets() -> list:
     settings_widgets = [  # Needs to be updated if new widgets are added
-        handle_input,
+        keep_slices,
+        locate_window,
+        mark_cutoff,
         median_filter,
         roi_filter_2D,
-        locate_window,
         locate_substratum,
         increase_contrast,
-        auto_threshold,
         remove_outliers,
     ]
 
     return settings_widgets
+
+
+## Update all widget presets with values from loaded stack
+def update_widget_presets(stack: np.ndarray):
+    global _last_load_path_file
+
+    z, y, x = stack.shape
+    (
+        z,
+        y,
+        x,
+    ) = z - 1, y - 1, x - 1  # account for python indexing (0 = 1st index)
+
+    # update save paths
+    save.output_directory.value = _last_load_path_file
+    export_settings.output_directory.value = _last_load_path_file
+
+    # update pre-processing functions limits
+    keep_slices.xstart.max = z
+    keep_slices.xend.max = z
+    keep_slices.xend.value = z
+    locate_window.ymin.max = y
+    locate_window.ymax.max = y
+    locate_window.ymax.value = int(y / 5)
+    mark_cutoff.cutoff_y.max = y
+    locate_substratum.ymin.max = y
+    locate_substratum.ymin.value = y - int(y / 5)
+    locate_substratum.ymax.max = y
+    locate_substratum.ymax.value = y
+
+
+## Create widget for thresholding function
+def create_threshold_widget(viewer: napari.Viewer, thresholds: dict, stack: np.ndarray):
+    container = Container()
+
+    def apply_threshold(stack, viewer, thresh, method_name):
+        global _current_thresholding_method
+        _current_thresholding_method = method_name
+        binary = (stack > thresh).astype(np.uint8)
+        binary[stack == 0] = 0
+        utils.update_layer(viewer, binary, type="label", name="binary")
+
+    # Auto-threshold fields
+    for name, value in thresholds.items():
+        lbl = Label(value=f"{name}: {value:.2f}")
+        btn = PushButton(text=f"Select {name}")
+
+        btn.changed.connect(partial(apply_threshold, stack, viewer, value, name))
+
+        container.append(lbl)  # type: ignore
+        container.append(btn)  # type: ignore
+
+    # Spacer
+    container.append(Label(value=""))  # type: ignore
+
+    # User-defined field
+    lbl_custom = Label(value="Custom Threshold:")
+    spin = FloatSpinBox(min=0.0, max=1.0, step=0.01)
+    btn_custom = PushButton(
+        text="Select Custom [WARNING: Not suitable for batch processing]"
+    )
+    btn_custom.changed.connect(
+        lambda _: apply_threshold(stack, viewer, spin.value, "custom")
+    )
+
+    container.append(lbl_custom)  # type: ignore
+    container.append(spin)  # type: ignore
+    container.append(btn_custom)  # type: ignore
+
+    return container

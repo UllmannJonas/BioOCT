@@ -3,7 +3,6 @@ Assembly of napari plugin widgets into scrollable tabs.
 """
 
 # Third-party imports
-from magicgui.widgets import Container
 from qtpy.QtWidgets import QTabWidget, QScrollArea, QWidget, QVBoxLayout
 
 # Local imports
@@ -21,33 +20,36 @@ def main():
         # save file
         # save many files
         widgets.load_file,
-        widgets.handle_input,
         widgets.save,
+        widgets.export_settings,
         widgets.load_settings,
         # widgets.apply_loaded_settings_single,
     ]
-    scrolltab_io = create_scrolltab(widget_list=io_widgets, name="Loading/Saving")
+    scrolltab_io = create_scrolltab(widget_list=io_widgets)
 
     # Pre-Processing Tab
     pre_widgets = [
-        widgets.ignore_slices,
+        widgets.keep_slices,
+        widgets.locate_window,
+        widgets.mark_cutoff,
+        widgets.zero_out_window,
         widgets.median_filter,
         widgets.roi_filter_2D,
-        widgets.locate_window,
-        widgets.zero_out_window,
         widgets.locate_substratum,
         widgets.zero_out_substratum,
+        widgets.confirm_segmentation,
     ]
-    scrolltab_pre = create_scrolltab(widget_list=pre_widgets, name="Pre-Processing")
+    scrolltab_pre = create_scrolltab(widget_list=pre_widgets)
 
     # Binarize Tab
     bin_widgets = [
+        widgets.median_filter,
         widgets.increase_contrast,
         widgets.auto_threshold,
         widgets.remove_outliers,
         widgets.confirm_binarization,
     ]
-    scrolltab_bin = create_scrolltab(widget_list=bin_widgets, name="Binarization")
+    scrolltab_bin = create_scrolltab(widget_list=bin_widgets)
 
     # Evaluate Tab
     eval_widgets = [
@@ -59,7 +61,7 @@ def main():
         # widgets.BV
         # widgets.export
     ]
-    scrolltab_eval = create_scrolltab(widget_list=eval_widgets, name="Evaluation")
+    scrolltab_eval = create_scrolltab(widget_list=eval_widgets)
 
     # Merge Tabs
     tabs = QTabWidget()
@@ -74,20 +76,32 @@ def main():
 # Helper function
 # Creates a scrollable tab containing the provided widgets for napari plugin GUI
 def create_scrolltab(
-    widget_list: list, name: str = "", min_width: int = 500
+    widget_list: list,
 ) -> QScrollArea:
-    container = Container(
-        widgets=widget_list, layout="vertical", name=name, visible=True, labels=False
-    )
-
     inner_widget = QWidget()
     inner_layout = QVBoxLayout(inner_widget)
-    inner_layout.addWidget(container.native)
+    inner_layout.setSpacing(30)
+
+    for w in widget_list:
+        wrapper = QWidget()
+        wrapper.setObjectName("wrapper")
+        wrapper_layout = QVBoxLayout(wrapper)
+        wrapper_layout.setContentsMargins(5, 5, 5, 5)
+        wrapper_layout.addWidget(w.native)
+        wrapper.setStyleSheet("""
+            #wrapper {
+                border: 1px solid #d0d0d0;
+                border-radius: 6px;
+            }
+        """)
+        inner_layout.addWidget(wrapper)
+
+    inner_layout.addStretch()
 
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
     scroll.setWidget(inner_widget)
-    scroll.setMinimumWidth(min_width)
+    scroll.setMinimumWidth(400)
 
     scrolltab = scroll
 
