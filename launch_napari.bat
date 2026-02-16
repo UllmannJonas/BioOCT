@@ -1,13 +1,17 @@
 @echo off
-REM -----------------------------
-REM Start Napari with OCT plugin
-REM -----------------------------
+REM ------------------------------------
+REM Start Napari Script
+REM ------------------------------------
 
-REM Pfad zur virtuellen Umgebung
-set VENV_PATH=C:\Users\sx1218\Arbeitsordner\Python\oct-analysis\.venv
+REM Path
+set SCRIPT_DIR=%~dp0
 
-REM Aktivieren der venv
-call "%VENV_PATH%\Scripts\activate.bat"
+REM Path to venv
+set VENV_PATH=%SCRIPT_DIR%.venv
 
-REM Napari starten
+REM activate venv
+call "%VENV_PATH%\Scripts\activate"
+
+REM start napari
 napari
+pause

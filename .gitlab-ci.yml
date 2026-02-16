@@ -1,0 +1,73 @@
+stages:
+  - lint
+  - test
+  - docs
+  - build
+  - deploy
+
+variables:
+  UV_SYSTEM_PYTHON: "1"
+  UV_COMPILE_BYTECODE: "0"
+
+default:
+  image: python:3.12
+  before_script:
+    - pip install uv
+    - uv sync
+
+# ----------------------------------------
+# LINTING (Ruff + Pyright)
+# when: every push
+# ----------------------------------------
+lint:
+  stage: lint
+  script:
+    - uv run ruff check --fix .
+    #! only possible with bio-oct on pypi
+    # - uv run pyright
+  allow_failure: false
+
+#! only possible with bio-oct on pypi
+# # ----------------------------------------
+# # TESTING (matrix über Python-Versionen)
+# # when: every push
+# # ----------------------------------------
+# test:
+#   stage: test
+#   parallel:
+#     matrix:
+#       - PYTHON_VERSION: "3.10"
+#       - PYTHON_VERSION: "3.11"
+#       - PYTHON_VERSION: "3.12"
+#       - PYTHON_VERSION: "3.13"
+#       # - PYTHON_VERSION: "3.14"
+#   image: python:${PYTHON_VERSION}
+#   script:
+#     - uv run pytest -q
+
+#! later build and deploy to pypi and napari-hub
+# # ----------------------------------------
+# # BUILD PACKAGE (sdist + wheel)
+# # when: only on tag push
+# # ----------------------------------------
+# build:
+#   stage: build
+#   rules:
+#     - if: '$CI_COMMIT_TAG'
+#   script:
+#     - uv build --no-sources
+#   artifacts:
+#     paths:
+#       - dist/
+#     expire_in: 1 week
+
+# # ----------------------------------------
+# # DEPLOY TO PYPI (ENABLED WHEN READY)
+# # when: only on tag push
+# # ----------------------------------------
+# #deploy:
+# #  stage: deploy
+# #  rules:
+# #    - if: '$CI_COMMIT_TAG'
+# #  script:
+# #    - uv publish -u __token__ -p $PYPI_TOKEN
