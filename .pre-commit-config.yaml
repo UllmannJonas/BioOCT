@@ -1,27 +1,34 @@
 repos:
 # Update the uv lockfile
-- repo: https://github.com/astral-sh/uv-pre-commit
-  rev: 0.9.8
-  hooks:
-    - id: uv-lock
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.9.8
+    hooks:
+      - id: uv-lock
 
 # Ruff linter and formatter
-- repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: v0.14.4
-  hooks:
-    # Run the linter, fixes enabled.
-    - id: ruff-check
-      args: [ --fix ]
-    # Run the formatter.
-    - id: ruff-format
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.4
+    hooks:
+      - id: ruff
+        types_or: [python, pyi]
+        args: [--fix]
+      - id: ruff-format
+        types_or: [python, pyi]
+
+# check for large files
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: check-added-large-files
 
 # Type checking with Pyright
-- repo: https://github.com/RobertCraigie/pyright-python
-  rev: v1.1.407
-  hooks:
-    - id: pyright
-      language: system
-      types: [python]
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.407
+    hooks:
+      - id: pyright
+        language: system
+        types: [python]
 
 # possible to add local hook for pytest later
 # - repo: local

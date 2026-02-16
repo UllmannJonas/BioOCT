@@ -1,34 +1,42 @@
 # oct_analysis
 
-`oct_analysis` is a Python library for processing image data from optical methods, foremost optical coherence tomography (OCT).
+`oct_analysis` is a napari plugin for processing image data from optical coherence tomography (OCT) from Thorlabs .oct fileformat.
 
-It provides functions for loading, segmenting and analyzing Thorlabs OCT image stacks.
-These functions are accessible via direct import into Python code, and as a napari plugin.
+
+It provides widgets for interactive usage of functions from the `bio-oct`-Python package.
+
+The main use cases are:
+
+- segment biofilm growing on flat surfaces from optical window and substratum
+- fast batch-processing of timeseries data
+- creating labeled data for semantic segmentation by ML
+
+
+NOTE: For exporting data as nifti (needed for ML training via nnUnet), the napari-nifti plugin is recommended.
 
 ---
 
 ## Features
 
-- Load `.oct`, `.nii` and `.tiff` files into NumPy arrays
+- Enable napari to open `.oct` files
 - Normalization and various filter options
 - Semi-automated, fine-tunable window and substratum detection
 - Thresholding, segmentation, and outlier removal
-- Export of processed stacks and parameter settings
-- GUI support (napari) for interactive labeling/analysis workflows
+- Export of parameter settings
 
 ## Getting Started
 
-- **[Installation Guide (Windows)](docs/INSTALL.md)**  
+- **[Installation Guide (Windows)](docs/INSTALL.md)**
   Setup instructions for users and developers using PowerShell and `uv`.
 
-- **[Usage Guide](docs/USAGE.md)**  
-  Step-by-step description of the napari interface.
 
-- **[Contribute](docs/CONTRIBUTE.md)**  
+- **[Usage Guide](docs/USAGE.md)**
+  Overview and guidance to further information about the plugin usage and napari.
+
+
+- **[Contribute](docs/CONTRIBUTE.md)**
   Best practice workflow for contributing to the project.
 
-- **[API Documentation](https://oct-analysis.readthedocs.io/en/latest/)** (soon)  
-  Full function reference and module descriptions.
 
 ---
 

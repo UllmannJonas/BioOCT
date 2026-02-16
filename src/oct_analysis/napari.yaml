@@ -1,0 +1,21 @@
+name: oct_analysis
+contributions:
+  # Reader plugin command
+  commands:
+  - id: oct_analysis.oct_reader
+    title: Read ".oct" files
+    python_name: oct_analysis._reader:get_reader_fn
+  # Widget plugin command
+  - id: oct_analysis.widgets
+    python_name: oct_analysis:main
+    title: OCT Processing Widgets
+
+  readers:
+  - command: oct_analysis.oct_reader
+    accepts_directories: true
+    filename_patterns:
+    - '*.oct'
+
+  widgets:
+    - command: oct_analysis.widgets # Note: same as command.id above
+      display_name: OCTool
