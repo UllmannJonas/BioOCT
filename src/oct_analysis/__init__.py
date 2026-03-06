@@ -23,9 +23,11 @@ def main():
 
     # Pre-Processing Tab
     pre_widgets = [
+        widgets.median_filter_widget,
         widgets.remove_window,
         widgets.remove_substratum_via_intensity,
         widgets.remove_substratum_via_canny,
+        widgets.remove_substratum_via_sobel,
         widgets.confirm_segmentation,
     ]
     scrolltab_pre = create_scrolltab(widget_list=pre_widgets)

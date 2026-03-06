@@ -16,7 +16,7 @@ import napari
 from napari.utils.notifications import show_info, show_warning
 import numpy as np
 from qtpy.QtWidgets import QFileDialog
-
+from scipy import ndimage as ndi
 
 # Local imports
 import bio_oct
@@ -112,6 +112,19 @@ def export_pipeline(user_handle: str, output_directory: str):
 # region pre-processing
 # ------------------------------------------------------------------------
 # -------------------- Widgets for pre-processing tab --------------------
+@magicgui(call_button="Apply Median Filter")
+@gui_error_handler
+def median_filter_widget(viewer: napari.Viewer, median_size: int = 3, preview: bool = False):
+    stack = layer_exists_check(viewer, "working copy").data
+
+    median_filtered = bio_oct.median_filter(stack, state.valid_mask, median_size)
+    median_layer = update_layer(viewer, median_filtered, affine=state.affine, name="median-preview")
+
+    if not preview:
+        update_layer(viewer, median_filtered, affine=state.affine, name="working copy")
+        viewer.layers.remove(median_layer)
+
+
 @magicgui(
     call_button="Remove Window",
     ymin={"widget_type": "SpinBox", "min": 0, "step": 1, "value": 0},
@@ -382,7 +395,7 @@ def remove_substratum_via_test(    viewer: napari.Viewer,
 
 
 @magicgui(
-    call_button="Remove Substratum (Gradient-Based)",
+    call_button="Remove Substratum (Canny-Edges)",
     ymin={"widget_type": "SpinBox", "min": 0, "step": 1, "value": 0, "label": "Upper Bound"},
     ymax={"widget_type": "SpinBox", "min": 0, "step": 1, "value": 100, "label": "Lower Bound"},
     sigma={
@@ -438,17 +451,16 @@ def remove_substratum_via_canny(
     reference_stack = layer_exists_check(viewer, state.filename).data
     stack = layer_exists_check(viewer, "working copy").data
 
-
     # canny edge detection
     canny_edges = bio_oct.canny_edge_filter(
-        reference_stack,
+        stack,
         ymin,
         ymax,
         sigma,
         lower_threshold,
         upper_threshold,
     )
-    canny_layer = update_layer(viewer, canny_edges, affine=state.affine, name="canny edges")
+    canny_layer = update_layer(viewer, canny_edges, affine=state.affine, name="canny edges", type="labels")
 
     # locating the canny edge as substratum
     state.substratum_coords, state.substratum_coords_nan = bio_oct.locate_substratum(
@@ -480,13 +492,98 @@ def remove_substratum_via_canny(
         update_layer(viewer, no_substratum, affine=state.affine, name="working copy")
 
         state.pl.add_step(pipeline.pipe_canny_edge_filter, ymin=ymin, ymax=ymax, sigma=sigma, lower_threshold=lower_threshold, upper_threshold=upper_threshold)
-        state.pl.add_step(pipeline.pipe_locate_substratum, ymin=ymin, ymax=ymax)
+        state.pl.add_step(pipeline.pipe_locate_substratum, ymin=ymin, ymax=ymax, flag="canny")
         if clean_substratum:
             state.pl.add_step(pipeline.pipe_clean_substratum_coords, outlier_size=outlier_size)
         state.pl.add_step(pipeline.pipe_zero_out_substratum)
 
         viewer.layers.remove(coords_layer)
         viewer.layers.remove(canny_layer)
+
+
+@magicgui(
+    call_button="Remove Substratum (Sobel-Edges)",
+    ymin={"widget_type": "SpinBox", "min": 0, "step": 1, "value": 0, "label": "Upper Bound"},
+    ymax={"widget_type": "SpinBox", "min": 0, "step": 1, "value": 100, "label": "Lower Bound"},
+    sigma={
+        "widget_type": "FloatSpinBox",
+        "min": 0.0,
+        "max": 3.0,
+        "step": 0.1,
+        "value": 0.0,
+        "label": "Gaussian Blur Sigma",
+    },
+    clean_substratum={"value": False},
+    outlier_size={
+        "widget_type": "SpinBox",
+        "min": 0,
+        "max": 20,
+        "step": 1,
+        "value": 0,
+        "label": "Outlier Size",
+    },
+)
+@gui_error_handler
+def remove_substratum_via_sobel(
+    viewer: napari.Viewer,
+    ymin: int,
+    ymax: int,
+    sigma: float,
+    clean_substratum: bool,
+    outlier_size: int,
+    preview: bool = True,
+):
+    reference_stack = layer_exists_check(viewer, state.filename).data
+    stack = layer_exists_check(viewer, "working copy").data
+
+    # Optional Gaussian smoothing
+    sobel_edges = bio_oct.sobel_axial(stack, ymin, ymax, sigma)
+    sobel_layer = update_layer(
+        viewer,
+        sobel_edges,
+        affine=state.affine,
+        name="sobel-preview",
+    )
+
+    # locate substratum as position of maximum gradient
+    state.substratum_coords, state.substratum_coords_nan = bio_oct.locate_substratum(
+        sobel_edges, ymin, ymax
+    )
+    if clean_substratum:
+        state.substratum_coords = bio_oct.clean_substratum_coords(
+            state.substratum_coords_nan, reference_stack, outlier_size=outlier_size
+        )
+        state.substratum_coords_nan = None
+        show_info("Success! No NaN values remaining!")
+    
+    labelstack = vizualize_coords(
+        reference_stack, state.substratum_coords, state.substratum_coords_nan
+    )
+
+    coords_layer = update_layer(
+        viewer,
+        labelstack,
+        affine=state.affine,
+        type="labels",
+        name="substratum_coords",
+    )
+
+    if not preview:
+        no_substratum = bio_oct.zero_out_substratum(stack, state.substratum_coords)
+
+        update_layer(
+            viewer,
+            no_substratum,
+            affine=state.affine,
+            name="working copy",
+        )
+        viewer.layers.remove(sobel_layer)
+        viewer.layers.remove(coords_layer)
+        state.pl.add_step(pipeline.pipe_sobel_axial, ymin=ymin, ymax=ymax, sigma=sigma)
+        state.pl.add_step(pipeline.pipe_locate_substratum, ymin=ymin, ymax=ymax, flag="sobel")
+        if clean_substratum:
+            state.pl.add_step(pipeline.pipe_clean_substratum_coords, outlier_size=outlier_size)
+        state.pl.add_step(pipeline.pipe_zero_out_substratum)
 
 
 @magicgui(call_button="Confirm Segmentation")
@@ -497,8 +594,6 @@ def confirm_segmentation(viewer: napari.Viewer):
 
     confirmed = np.zeros_like(reference_stack)
     confirmed[state.valid_mask] = reference_stack[state.valid_mask]
-
-    state.pl.add_step(pipeline.pipe_confirm_segmentation)
 
     update_layer(viewer, confirmed, affine=state.affine, name="working copy")
 
@@ -551,7 +646,7 @@ def increase_contrast(viewer: napari.Viewer, percentile: float, preview: bool = 
 def gauss_filter(viewer: napari.Viewer, sigma: float, preview: bool = True):
     stack = layer_exists_check(viewer, "working copy").data
 
-    gauss_filtered = bio_oct.horizontal_gaussian_filter(stack, state.valid_mask, sigma)
+    gauss_filtered = bio_oct.gaussian_filter(stack, state.valid_mask, sigma)
     if preview:
         update_layer(viewer, gauss_filtered, affine=state.affine, name="gauss_blur-preview")
     else:
@@ -561,7 +656,7 @@ def gauss_filter(viewer: napari.Viewer, sigma: float, preview: bool = True):
         except ValueError:
             pass
         update_layer(viewer, gauss_filtered, affine=state.affine, name="working copy")
-        state.pl.add_step(pipeline.pipe_horizontal_gauss_filter, sigma=sigma)
+        state.pl.add_step(pipeline.pipe_gaussian_filter, sigma=sigma)
 
 
 @magicgui(call_button="Calculate Thresholds")
@@ -570,7 +665,7 @@ def auto_threshold(viewer: napari.Viewer):
     stack = layer_exists_check(viewer, "working copy").data
 
     thresholds = bio_oct.get_thresholds(stack, state.valid_mask)
-    bio_oct.plot_thresholds(stack, thresholds, state.valid_mask)
+    bio_oct.plot_thresholds(stack, thresholds)
 
     # state.thresh_method is set inside create_threshold_widget() when user selects method
     widget = create_threshold_widget(viewer, thresholds, stack, state)
@@ -627,7 +722,6 @@ def confirm_binarization(viewer: napari.Viewer):
 # -------------------- Widgets for evaluation tab --------------------
 @magicgui(
     call_button="Generate Height Map",
-    measure={"value": False},
     max_height_µm={
         "widget_type": "SpinBox",
         "label": "Max. Height [µm]",
@@ -638,51 +732,31 @@ def confirm_binarization(viewer: napari.Viewer):
         "mode": "d",
         "value": str(Path.home()),
     },
-    confirm_height={"value": False},
-    auto_call=True
 )
 @gui_error_handler
 def make_height_map(
     viewer: napari.Viewer,
-    measure: bool,
     max_height_µm: int,
     output_directory: str,
-    confirm_height: bool
 ):
-    if not measure:
-        return
     reference_layer = layer_exists_check(viewer, state.filename)
     binary_layer = layer_exists_check(viewer, "binary")
 
-    b_scans, axial, lateral = reference_layer.data.shape
+    _, axial, _ = reference_layer.data.shape
     assert state.spacing is not None
     y_coordinate = min(int(max_height_µm / (state.spacing.axial * 1000)), axial - 1)
 
-    update_layer(
-        viewer,
-        vizualize_coords(
-            stack=reference_layer.data,
-            coord_array=np.full((b_scans, lateral), y_coordinate, dtype=int)),
-        affine=state.affine,
-        type="labels",
-        name="max_height_HM"
+    savepath = Path(output_directory) / f"{state.filename}_HM.png"
+    bio_oct.save_height_map(
+        binary_stack=binary_layer.data,
+        height_map=bio_oct.calc_height_map(
+            binary_layer.data, state.spacing, state.substratum_coords
+        ),
+        spacing=state.spacing,
+        max_height_px=y_coordinate,
+        savepath=savepath,
     )
-
-    if confirm_height:
-        helper_layer = layer_exists_check(viewer, "max_height_HM")
-        viewer.layers.remove(helper_layer)
-        
-        savepath = Path(output_directory) / f"{state.filename}_HM.png"
-        bio_oct.save_height_map(
-            binary_stack=binary_layer.data,
-            height_map=bio_oct.calc_height_map(
-                binary_layer.data, state.spacing, state.substratum_coords
-            ),
-            spacing=state.spacing,
-            max_height_px=y_coordinate,
-            savepath=savepath,
-        )
-        show_info(f"Saved Height Map to {savepath}")
+    show_info(f"Saved Height Map to {savepath}")
 
 
 @magicgui(
@@ -716,7 +790,7 @@ def make_b_map(
     call_button="Export Metrics to CSV",
     min_height_SC={
         "widget_type": "SpinBox",
-        "label": "Min. Height SC [µm]",
+        "label": "Min. Height SC [px]",
     },
     output_directory={
         "widget_type": "FileEdit",
@@ -730,21 +804,21 @@ def calc_save_metrics(viewer: napari.Viewer, min_height_SC: int, output_director
     binary_stack = layer_exists_check(viewer, "binary").data
 
     assert state.spacing is not None
-    min_cover = max(int(min_height_SC / (state.spacing.axial * 1000)), 0)
+    min_height_µm = int(min_height_SC * state.spacing.axial * 1000)
 
     _, axial, _ = layer_exists_check(viewer, state.filename).data.shape
     max_HM_px = min(int(make_height_map.max_height_µm.value / (state.spacing.axial * 1000)), axial - 1)
     state.pl.add_evaluation_step(
         max_HM_μm=make_height_map.max_height_µm.value,
         max_HM_px=max_HM_px,
-        min_SC_μm=min_height_SC,
-        min_SC_px=min_cover
+        min_SC_μm=min_height_µm,
+        min_SC_px=min_height_SC
     )
 
     savepath = Path(output_directory) / f"{state.filename}_metrics.csv"
     bio_oct.metrics_to_csv(
         metrics=bio_oct.calc_biofilm_metrics(
-            binary_stack, state.spacing, state.substratum_coords, min_cover, state.filename
+            binary_stack, state.spacing, state.substratum_coords, min_height_µm, state.filename
         ),
         savepath=savepath
     )
@@ -832,15 +906,22 @@ def update_widget_presets(axial_max_idx: int) -> None:
 
     remove_window.ymin.max = axial_max_idx
     remove_window.ymax.max = axial_max_idx
+    remove_window.ymax.value = axial_max_idx
 
     remove_substratum_via_intensity.ymin.max = axial_max_idx
     remove_substratum_via_intensity.ymax.max = axial_max_idx
+    remove_substratum_via_intensity.ymax.value = axial_max_idx
 
     remove_substratum_via_canny.ymin.max = axial_max_idx
     remove_substratum_via_canny.ymax.max = axial_max_idx
+    remove_substratum_via_canny.ymax.value = axial_max_idx
+
+    remove_substratum_via_sobel.ymin.max = axial_max_idx
+    remove_substratum_via_sobel.ymax.max = axial_max_idx
+    remove_substratum_via_sobel.ymax.value = axial_max_idx
 
     # +1 because of indexing: [5, 5, 5] -> max_idx is 2 (counting from 0), while array-length is 3
-    make_height_map.max_height_µm.max = (axial_max_idx + 1) * state.spacing.axial
+    make_height_map.max_height_µm.max = ((axial_max_idx + 1) * state.spacing.axial * 1000)
     calc_save_metrics.min_height_SC.max = ((axial_max_idx + 1) * state.spacing.axial * 1000) * 0.1
 
 

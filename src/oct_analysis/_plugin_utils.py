@@ -23,9 +23,9 @@ class SessionState:
     source_dir: Path = Path.home()
     filename: str = "none"
     thresh_method: str = "none"
-    substratum_coords: np.ndarray = field(default_factory=lambda: np.full((100, 100), 1))
+    substratum_coords: np.ndarray | None = None
     substratum_coords_nan: np.ndarray | None = None
-    window_coords: np.ndarray = field(default_factory=lambda: np.full((100, 100), 0))
+    window_coords: np.ndarray | None = None
     valid_mask: np.ndarray | None = None
     reset_flag: bool = True
 
@@ -198,12 +198,10 @@ def create_threshold_widget(
 
     # Auto-threshold fields
     for name, value in thresholds.items():
-        lbl = Label(value=f"{name}: {value:.2f}")
-        btn = PushButton(text=f"Select {name}")
+        btn = PushButton(text=f"Select {name} ({value:.2f})")
 
         btn.changed.connect(partial(apply_threshold, stack, viewer, name))
 
-        container.append(lbl)  # type: ignore
         container.append(btn)  # type: ignore
 
     return container
