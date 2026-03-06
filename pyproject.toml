@@ -1,6 +1,6 @@
 [project]
 name = "oct_analysis"
-version = "1.0.1"
+version = "0.3"
 description = "A package for analyzing optical coherence tomography (OCT) images for biofilm."
 authors = [
   {name = "Andreas Netsch", email = "andreas.netsch@partner.kit.edu"},
