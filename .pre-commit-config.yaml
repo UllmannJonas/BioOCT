@@ -24,11 +24,9 @@ repos:
 
 # Type checking with Pyright
   - repo: https://github.com/RobertCraigie/pyright-python
-    rev: v1.1.407
+    rev: v1.1.408
     hooks:
-      - id: pyright
-        language: system
-        types: [python]
+    - id: pyright
 
 # possible to add local hook for pytest later
 # - repo: local
