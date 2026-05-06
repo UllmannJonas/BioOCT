@@ -1,0 +1,916 @@
+"""
+This contains the raw functions that work with numpy arrays.
+For the batch processing pipeline to work, all functions
+relevant to the processing, need to obey the <Pipeline-Contract>
+Pipeline Contract:
+- input
+    -> image:
+        The image stack data as np.ndarray.
+        Can also be a binary image.
+        This is stored in napari "image" or "labels" layer.data.
+    -> kwargs:
+        Any function-specific kwargs.
+        E.g. "size" for median filter, "sigma" for gauss filter etc.
+- output
+    ->  The return value should be a single numpy array of same shape and dtype as input array.
+        So if the input image is from a "labels" layer (binary) it should output that format.
+"""
+
+# region IMPORTS
+# python native imports
+from typing import Literal, Callable
+from pathlib import Path
+import tifffile as tiff
+
+# third party imports
+import cv2
+from medvol import MedVol
+import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+import numpy as np
+import pandas as pd
+from scipy.interpolate import griddata
+from skimage import morphology
+from skimage.filters.thresholding import (
+    threshold_otsu,
+    threshold_yen,
+    threshold_li,
+    threshold_mean,
+    threshold_isodata,
+    threshold_triangle,
+)
+
+# local imports
+from .registry import register
+from .constants import Fn
+
+THRESHOLD_METHODS: dict[str, Callable] = {
+    "otsu": threshold_otsu,
+    "yen": threshold_yen,
+    "li": threshold_li,
+    "mean": threshold_mean,
+    "isodata": threshold_isodata,
+    "triangle": threshold_triangle,
+    "manual": lambda x: None,  # placeholder, handled separately
+}
+# endregion IMPORTS
+
+
+# -----------------------------------------------------------------------
+# --- Processing functions --------------------------------------------------
+# region FUNCTIONS
+@register(Fn.CONVERT_TO_8BIT)
+def convert_to_8bit(image: np.ndarray) -> np.ndarray:
+    image = (image - image.min()) / (image.max() - image.min())
+
+    converted = (image * 255).astype(np.uint8)
+    return converted
+
+
+@register(Fn.MEDIAN_FILTER)
+def median_filter(image: np.ndarray, size: int = 1) -> np.ndarray:
+    _is_uint8(image)
+
+    filtered = np.empty_like(image)
+    for b_scan in range(image.shape[0]):
+        filtered[b_scan, :, :] = cv2.medianBlur(image[b_scan, :, :], size)
+    return filtered
+
+
+@register("gaussian_filter")
+def gaussian_filter(image: np.ndarray, sigma: float = 0.0) -> np.ndarray:
+    _is_uint8(image)
+
+    filtered = np.empty_like(image)
+    for b_scan in range(image.shape[0]):
+        filtered[b_scan, :, :] = cv2.GaussianBlur(
+            image[b_scan, :, :], ksize=(0, 0), sigmaX=sigma, sigmaY=sigma
+        )
+    return filtered
+
+
+@register("sobel_filter")
+def sobel_filter(image: np.ndarray) -> np.ndarray:
+    _is_uint8(image)
+
+    magnitude = np.zeros_like(image, dtype=np.float32)
+    for b_scan in range(image.shape[0]):
+        sobel_axial = cv2.Sobel(
+            image[b_scan, :, :], ddepth=cv2.CV_32F, dx=0, dy=1, ksize=3
+        )
+        magnitude[b_scan, :, :] = np.abs(sobel_axial)
+
+    magnitude = convert_to_8bit(magnitude)
+    return magnitude
+
+
+@register("locate_intensity")
+def locate_intensity(
+    image: np.ndarray, ymin: int, ymax: int, y_offset: int = 0, label_id: int = 1
+) -> np.ndarray:
+    if ymin >= ymax:
+        raise ValueError(f"ymin must be less than ymax.\nymin={ymin}\nymax={ymax}")
+    if ymin < 0 or ymax > image.shape[1]:
+        raise ValueError("Index out of bounds.")
+
+    y_coords = np.argmax(image[:, ymin:ymax, :], axis=1)
+    y_coords = y_coords + ymin + y_offset
+
+    """
+    things for testing:
+    Smoothen ycoords:
+    # 1. argmax → Höhenkarte
+    y_coords = locate_substratum(...)
+
+    # 2. Grobe Ausreißer entfernen
+    y_med = median_filter(y_coords, size=(3, 5))
+
+    # 3. Sanfte physikalische Glättung
+    y_smooth = gaussian_filter(y_med.astype(float), sigma=(1, 2))
+    y_smooth = np.round(y_smooth).astype(int)
+
+    # 4. Correct with moving average per bscan
+    for each bscan:
+        create moving average of y_coords with window size X and put outliers back in place (if distance to moving average > threshold)
+
+    """
+
+    return _map_coords_to3D(y_coords, image.shape, label_id)
+
+
+@register("remove_outliers")
+def remove_outliers(image: np.ndarray, outlier_size: int = 0) -> np.ndarray:
+    label_id = _get_label_id(image)
+
+    b_scans = image.shape[0]
+    bool_image = image.astype(bool)
+    output = np.empty_like(image, dtype=bool)
+
+    for bscan in range(b_scans):
+        output[bscan, :, :] = morphology.remove_small_objects(
+            bool_image[bscan, :, :], max_size=outlier_size, connectivity=2
+        )
+
+    output = output.astype(np.uint8) * label_id
+    return output
+
+
+@register("interpolate_gaps")
+def interpolate_gaps(image: np.ndarray) -> np.ndarray:
+    label_id = _get_label_id(image)
+
+    surface = np.argmax(image, axis=1).astype(np.float32)
+
+    gaps = np.all(image == 0, axis=1)
+    surface[gaps] = np.nan
+    valid = ~np.isnan(surface)
+
+    Z, X = np.indices(surface.shape)
+    points = np.column_stack((Z[valid], X[valid]))
+    values = surface[valid]
+
+    interpolated = griddata(points, values, (Z, X), method="linear")
+
+    if np.isnan(interpolated).any():
+        nearest = griddata(points, values, (Z, X), method="nearest")
+        interpolated[np.isnan(interpolated)] = nearest[np.isnan(interpolated)]
+
+    return _map_coords_to3D(interpolated, image.shape, label_id)
+
+
+@register("zero_out")
+def zero_out(
+    image: np.ndarray, labels: np.ndarray, direction: Literal["above", "below"]
+) -> np.ndarray:
+    _is_same_shape(image, labels)
+
+    yy = np.arange(image.shape[1])  # Create a range for y-coordinates
+    yy = yy.reshape(1, -1, 1)  # Reshape to ensure it can be broadcasted
+
+    surface = np.argmax(labels, axis=1)
+
+    copy = image.copy()
+
+    if direction == "below":
+        # Set pixels below and equal to the coords to zero
+        copy[yy >= surface[:, np.newaxis, :]] = 0
+    elif direction == "above":
+        # Set pixels above and equal to the coords to zero
+        copy[yy <= surface[:, np.newaxis, :]] = 0
+
+    return copy
+
+
+@register("replace_reflection")
+def replace_reflection(
+    image: np.ndarray, labels: np.ndarray, padding: int = 1, offset: int = 5
+) -> np.ndarray:
+    _is_same_shape(image, labels)
+
+    if (padding * 2 + 1) >= offset:
+        raise ValueError(
+            "Offset must be at least padding*2 + 1 to avoid overlap of replacement area."
+        )
+
+    result = image.copy()
+
+    reflection_surface = np.argmax(labels, axis=1)
+
+    z_coords, x_coords = np.meshgrid(
+        np.arange(image.shape[0]), np.arange(image.shape[2]), indexing="ij"
+    )
+
+    for shift in range(-padding, padding + 1):
+        source_y = np.clip(reflection_surface + offset + shift, 0, image.shape[1] - 1)
+        target_y = np.clip(reflection_surface + shift, 0, image.shape[1] - 1)
+        result[z_coords, target_y, x_coords] = image[z_coords, source_y, x_coords]
+
+    return result
+
+
+@register("untilt")
+def untilt(image: np.ndarray, labels: np.ndarray | None) -> np.ndarray:
+    if labels is None:
+        return image
+
+    _is_same_shape(image, labels)
+
+    coords = np.argmax(labels, axis=1)
+    bscans, axial, lateral = image.shape
+    untilted = np.zeros_like(image)
+
+    for bscan in range(bscans):
+        for ascan in range(lateral):
+            y_sub = coords[bscan, ascan]
+            untilted[bscan, (axial - y_sub) : axial, ascan] = image[
+                bscan, 0:y_sub, ascan
+            ]
+
+    return untilted
+
+
+@register("enhance_contrast")
+def enhance_contrast(
+    image: np.ndarray,
+    method: Literal["gamma", "clip", "clahe"],
+    gamma: float = 1.0,
+    clip_low_percentile: float = 1.0,  # 1%
+    clip_high_percentile: float = 99.0,  # 99%
+    clahe_clip: float = 2.0,
+    clahe_tile: int = 8,
+) -> np.ndarray:
+    _is_uint8(image)
+
+    copy = image.copy()
+    b_scans = copy.shape[0]
+
+    if method == "gamma":
+        # Zero doesnt get scaled so no need to handle it
+        # Create LookUpTable for gamma correction
+        table = np.array(
+            [((i / 255.0) ** gamma) * 255 for i in range(256)], dtype=np.uint8
+        )
+        # Apply LUT slice by slice
+        for bscan in range(b_scans):
+            copy[bscan] = cv2.LUT(copy[bscan], table)
+
+    elif method == "clip":
+        # ignore zero values for percentile calc
+        mask = copy > 0
+        non_zero = copy[mask]
+        low = np.percentile(non_zero, clip_low_percentile)
+        high = np.percentile(non_zero, clip_high_percentile)
+        copy = np.clip(copy, low, high)
+        copy = (copy - low) / (high - low) * 255  # rescale to full range
+        copy[~mask] = 0  # set zero values back to zero after clipping
+
+    elif method == "clahe":
+        clahe = cv2.createCLAHE(
+            clipLimit=clahe_clip, tileGridSize=(clahe_tile, clahe_tile)
+        )
+        for bscan in range(b_scans):
+            copy[bscan] = clahe.apply(copy[bscan])
+
+    else:
+        raise ValueError(f"Unknown method: {method}")
+
+    return convert_to_8bit(copy)
+
+
+@register("threshold")
+def threshold(
+    image: np.ndarray,
+    method: str,  # choices set in THRESHOLD_METHODS
+    manual_value: int = 128,
+    ignore_black: bool = True,
+    ignore_white: bool = True,
+    color_id: int = 9,
+) -> np.ndarray:
+    if method == "manual":
+        t = float(manual_value)
+        binary = (image > t).astype(np.uint8)
+        return binary * color_id
+
+    # ignore black/white pixels as selected
+    values = image.flatten()
+    if ignore_black:
+        values = values[values > 0]
+    if ignore_white:
+        if image.dtype == np.uint8:
+            values = values[values < 255]
+        elif image.dtype == np.float32:
+            values = values[values < 1.0]
+        else:
+            raise ValueError(f"Unsupported image dtype ({image.dtype}).")
+
+    # calc threshold
+    t = float(THRESHOLD_METHODS[method](values))
+    binary = (image.copy() > t).astype(np.uint8)
+    return binary * color_id
+
+
+@register("export_to_tiff")
+def export_to_tiff(image: np.ndarray, spacing: np.ndarray, path: Path) -> None:
+    bscans_spacing = spacing[0] * 1000.0
+    lateral_res = 1.0 / (spacing[2] * 1000)
+    axial_res = 1.0 / (spacing[1] * 1000)
+
+    dims = 3
+    direction = np.eye(3)
+    origin = np.zeros(3)
+    affine = np.eye(4)
+    affine[:dims, :dims] = direction @ np.diag(spacing)
+    affine[:dims, dims] = origin
+
+    dir = path.parent
+    filename = path.stem
+
+    i = 1
+    while path.exists():
+        path = dir / f"{filename}_{i}.tiff"
+        i += 1
+
+    tiff.imwrite(
+        str(path),
+        data=image,
+        imagej=True,
+        resolution=(lateral_res, axial_res),
+        metadata={
+            "spacing": bscans_spacing,  # for b_scans axis
+            "unit": "um",  # for all data
+            "affine": affine.tolist(),
+        },
+    )
+
+
+@register("export_to_nifti")
+def export_to_nifti(image: np.ndarray, affine: np.ndarray, path: Path) -> None:
+    # remove .gz so that path.stem works correctly
+    tmp_path = Path(str(path).replace(".gz", ""))
+
+    dir = tmp_path.parent
+    filename = tmp_path.stem
+
+    i = 1
+    while path.exists():
+        path = dir / f"{filename}_{i}.nii.gz"
+        i += 1
+
+    nifti = MedVol(image, affine=affine)  # type: ignore
+    nifti.save(path)
+
+
+@register("create_height_map")
+def create_height_map(
+    binary: np.ndarray,
+    substratum: np.ndarray | None = None,
+    spacing: np.ndarray | None = None,
+    max_h: int = 0,
+    colorbar: bool = False,
+    scalebar: bool = False,
+    preview: bool = False,
+    axes: bool = False,
+    savepath: Path | None = None,
+) -> None:
+    height_map = _calc_height_map(
+        binary=binary,
+        substratum=substratum,
+        axial_spacing=spacing[1] if spacing is not None else None,
+    )
+
+    fig = _plot_height_map(
+        height_map=height_map,
+        spacing=spacing,
+        max_h=max_h,
+        colorbar=colorbar,
+        scalebar=scalebar,
+        axes=axes,
+    )
+
+    if preview:
+        plt.show(block=False)
+    else:
+        if savepath is None:
+            raise ValueError("savepath must be provided if preview is not selected.")
+
+        dir = savepath.parent
+        filename = savepath.stem  # includes _Hmap
+        i = 1
+        while savepath.exists():
+            savepath = dir / f"{filename}_{i}.tiff"
+            i += 1
+        fig.savefig(savepath)
+
+
+@register("create_bv_map")
+def create_bv_map(
+    binary: np.ndarray,
+    substratum: np.ndarray | None = None,
+    spacing: np.ndarray | None = None,
+    max_h: int = 0,
+    colorbar: bool = False,
+    scalebar: bool = False,
+    preview: bool = False,
+    axes: bool = False,
+    savepath: Path | None = None,
+) -> None:
+    bv_map = _calc_bv_map(
+        binary=binary,
+        substratum=substratum,
+        axial_spacing=spacing[1] if spacing is not None else None,
+    )
+
+    fig = _plot_bv_map(
+        bv_map,
+        spacing=spacing,
+        max_h=max_h,
+        colorbar=colorbar,
+        scalebar=scalebar,
+        axes=axes,
+    )
+
+    if preview:
+        plt.show(block=False)
+    else:
+        if savepath is None:
+            raise ValueError("savepath must be provided if preview is not selected.")
+
+        dir = savepath.parent
+        filename = savepath.stem  # includes BVmap
+        i = 1
+        while savepath.exists():
+            savepath = dir / f"{filename}_{i}.tiff"
+            i += 1
+        fig.savefig(savepath)
+
+
+@register("save_metrics")
+def save_metrics(
+    binary: np.ndarray,
+    savepath: Path,
+    spacing: np.ndarray,
+    substratum: np.ndarray | None = None,
+) -> None:
+    results = _calc_metrics(binary, savepath, spacing, substratum)
+
+    _save_or_append_metrics(results, savepath)
+
+
+# endregion FUNCTIONS
+
+
+# -----------------------------------------------------------------------
+# --- Helper functions --------------------------------------------------
+# region HELPERS
+def _map_coords_to3D(
+    coords: np.ndarray, image_shape: tuple[int, int, int], label_id: int = 1
+) -> np.ndarray:
+    mapped = np.zeros(image_shape, dtype=np.uint8)
+    b_scans, axial, lateral = image_shape
+
+    b_scans_idx, lateral_idx = np.meshgrid(
+        np.arange(b_scans), np.arange(lateral), indexing="ij"
+    )
+    axial_idx = np.clip(np.rint(coords), 0, axial - 1).astype(int)
+
+    mapped[b_scans_idx, axial_idx, lateral_idx] = label_id
+
+    return mapped
+
+
+def _vizualize_search_area(
+    image_shape: tuple[int, ...], ymin: int, ymax: int
+) -> np.ndarray:
+    area = np.zeros(image_shape, dtype=np.uint8)
+    area[:, ymin + 1 : ymax, :] = 1
+    return area
+
+
+def _is_binary(binary_stack: np.ndarray) -> bool:
+    unique_vals = np.unique(binary_stack, sorted=True).tolist()
+    if not unique_vals[0] == 0 or len(unique_vals) > 2:
+        return False
+
+    return True
+
+
+def _get_label_id(binary_stack: np.ndarray) -> int:
+    if not _is_binary(binary_stack):
+        raise ValueError("input stack is not binary.")
+
+    return int(np.unique(binary_stack)[-1])
+
+
+def _is_same_shape(stackA: np.ndarray, stackB: np.ndarray) -> None:
+    if stackA.shape != stackB.shape:
+        raise ValueError("Stacks not of same shape.")
+
+
+def _is_uint8(image: np.ndarray) -> None:
+    if image.dtype != np.uint8:
+        raise ValueError("Image data-type must be uint8. Use convert widget.")
+
+
+def _calc_thresholds(
+    image: np.ndarray,
+    methods: list[str],
+    manual_value: int = 128,
+    ignore_black: bool = True,
+    ignore_white: bool = True,
+) -> dict[str, float]:
+    thresholds = {}
+
+    # ignore black/white pixels as selected
+    values = image.flatten()
+    if ignore_black:
+        values = values[values > 0]
+    if ignore_white:
+        if image.dtype == np.uint8:
+            values = values[values < 255]
+        elif image.dtype == np.float32:
+            values = values[values < 1.0]
+        else:
+            raise ValueError(f"Unsupported image dtype ({image.dtype}).")
+    elif ignore_black and ignore_white:
+        if image.dtype == np.uint8:
+            values = values[(values > 0) & (values < 255)]
+        elif image.dtype == np.float32:
+            values = values[(values > 0.0) & (values < 1.0)]
+        else:
+            raise ValueError(f"Unsupported image dtype ({image.dtype}).")
+
+    for m in methods:
+        if m == "manual":
+            thresholds[m] = float(manual_value)
+        else:
+            if m not in THRESHOLD_METHODS:
+                raise ValueError(f"Unknown threshold method: {m}")
+            thresholds[m] = float(THRESHOLD_METHODS[m](values))
+
+    return thresholds
+
+
+def _plot_thresholds(
+    image: np.ndarray, thresholds: dict[str, float], b_idx: int
+) -> None:
+    n = len(thresholds)
+    fig, axes = plt.subplots(1, n, figsize=(4 * n, 4), squeeze=False)
+    axes = axes[0]
+    for ax, (name, t) in zip(axes, thresholds.items()):
+        mask = image > t
+        ax.imshow(image, cmap="gray", aspect="auto")
+        ax.imshow(mask, cmap="viridis", alpha=0.3, aspect="auto")
+        ax.set_title(f"{name}  (t={round(t)})")
+        ax.axis("off")
+    fig.suptitle(f"B-Scan {b_idx} — threshold preview")
+    plt.tight_layout()
+    plt.show(block=False)
+
+
+def _calc_height_map(
+    binary: np.ndarray,
+    substratum: np.ndarray | None = None,
+    axial_spacing: float | None = None,
+) -> np.ndarray:
+    if not _is_binary(binary):
+        raise ValueError("Input stack is not binary.")
+
+    untilted = untilt(binary, substratum)
+
+    hm_inverted = np.argmax(
+        untilted, axis=1
+    )  # this gives higher values for visually lower biofilm -> take inverse
+    hm = (
+        binary.shape[1] - hm_inverted + 1
+    )  # add 1 to account for zero-indexing, so that substratum gets height 1 instead of 0
+    # set height indices to 0 where no biofilm signal occurs
+    hm[~np.any(binary, axis=1)] = 0
+
+    # Convert index to physical height
+    if axial_spacing is not None:
+        hm = hm.astype(np.float32) * (axial_spacing * 1000.0)
+
+    return hm
+
+
+def _plot_height_map(
+    height_map: np.ndarray,
+    spacing: np.ndarray | list[float] | None = None,
+    max_h: int | None = None,  # in µm
+    colorbar: bool = False,
+    scalebar: bool = False,
+    axes: bool = False,
+) -> Figure:
+    fig, ax = plt.subplots(constrained_layout=True)
+    fig.set_dpi(300)
+
+    # Calculate extent for physical units
+    if spacing is not None:
+        # spacing format: [bscans, axial, lateral] in mm
+        extent = (  # [left, right, bottom, top]
+            0.0,
+            float(height_map.shape[1] * spacing[2] * 1000),  # lateral
+            float(height_map.shape[0] * spacing[0] * 1000),  # bscans
+            0.0,
+        )
+    else:
+        extent = None
+
+    # Set vmax
+    vmax = max_h if max_h is not None else height_map.max()  # already in µm
+
+    # Plot with extent and aspect='auto' to maintain correct aspect ratio with physical units
+    im = ax.imshow(
+        height_map, cmap="inferno", vmin=0, vmax=vmax, extent=extent, aspect="equal"
+    )
+
+    if axes and spacing is not None:
+        ax.set_xlabel("Lateral (µm)")
+        ax.set_ylabel("B-scans (µm)")
+
+    if colorbar:
+        cbar = plt.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
+        cbar.ax.set_ylabel("Height (µm)", rotation=270, labelpad=15)
+
+    if scalebar and spacing is not None:
+        assert extent is not None, "Extent must be calculated for scalebar."
+        _create_horizontal_scale_bar(extent, ax)
+
+    return fig
+
+
+def _calc_bv_map(
+    binary: np.ndarray,
+    substratum: np.ndarray | None = None,
+    axial_spacing: float | None = None,
+) -> np.ndarray:
+    if not _is_binary(binary):
+        raise ValueError("Input stack is not binary.")
+
+    untilted = untilt(binary, substratum)
+
+    bv_map = np.count_nonzero(untilted, axis=1).astype(np.float32)
+
+    if axial_spacing is not None:
+        bv_map = bv_map * (axial_spacing * 1000.0)
+
+    return bv_map
+
+
+def _plot_bv_map(
+    bv_map: np.ndarray,
+    spacing: np.ndarray | list[float] | None = None,
+    max_h: int | None = None,  # in µm
+    colorbar: bool = False,
+    scalebar: bool = False,
+    axes: bool = False,
+) -> Figure:
+    fig, ax = plt.subplots(constrained_layout=True)
+    fig.set_dpi(300)
+
+    # Calculate extent for physical units
+    if spacing is not None:
+        # spacing format: [bscans, axial, lateral] in mm
+        extent = (  # [left, right, bottom, top]
+            0.0,
+            float(bv_map.shape[1] * spacing[2] * 1000),  # lateral
+            float(bv_map.shape[0] * spacing[0] * 1000),  # bscans
+            0.0,
+        )
+    else:
+        extent = None
+
+    # Set vmax
+    if spacing is not None:
+        spacing_bscans = spacing[0] * 1000.0
+        spacing_lateral = spacing[2] * 1000.0
+        cbar_ylabel = "Volume (µm³)"
+    else:
+        spacing_bscans = 1.0
+        spacing_lateral = 1.0
+        cbar_ylabel = "Thickness (µm)"
+
+    if max_h is not None:
+        max_vol = max_h * spacing_lateral * spacing_bscans
+    else:
+        max_vol = bv_map.max() * spacing_bscans * spacing_lateral
+
+    # Plot with extent and aspect='auto' to maintain correct aspect ratio with physical units
+    im = ax.imshow(
+        bv_map, cmap="inferno", vmin=0, vmax=max_vol, extent=extent, aspect="equal"
+    )
+
+    if axes and spacing is not None:
+        ax.set_xlabel("Lateral (µm)")
+        ax.set_ylabel("B-scans (µm)")
+
+    if colorbar:
+        cbar = plt.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
+        cbar.ax.set_ylabel(cbar_ylabel, rotation=270, labelpad=15)
+
+    if scalebar and spacing is not None:
+        assert extent is not None, "Extent must be calculated for scalebar."
+        _create_horizontal_scale_bar(extent, ax)
+
+    return fig
+
+
+def _create_horizontal_scale_bar(
+    extent: tuple[float, float, float, float], ax: Axes
+) -> None:
+    """Add a horizontal scale bar (1 mm) to the plot.
+
+    Args:
+        extent: The extent tuple [left, right, bottom, top] in µm from imshow
+        ax: matplotlib axes
+    """
+    left, right, bottom, top = extent
+
+    scale_bar_um = 1000.0  # 1 mm in µm
+
+    # Positioning parameters (as fraction of extent)
+    margin_fraction = 0.05
+    margin_right = (right - left) * margin_fraction
+    margin_bottom = (bottom - top) * (margin_fraction * 0.5)
+
+    # Scalebar endpoints (positioned at bottom-right)
+    scalebar_x_end = right - margin_right
+    scalebar_x_start = scalebar_x_end - scale_bar_um
+    scalebar_y = bottom - margin_bottom
+
+    # Draw the scalebar line
+    ax.plot(
+        [scalebar_x_start, scalebar_x_end],
+        [scalebar_y, scalebar_y],
+        color="white",
+        lw=2,
+        zorder=10,
+    )
+
+    # Add text label
+    text_x = (scalebar_x_start + scalebar_x_end) / 2
+    text_y_offset = (bottom - top) * 0.01
+    text_y = scalebar_y - text_y_offset
+    ax.text(
+        text_x,
+        text_y,
+        "1 mm",
+        color="white",
+        fontsize=10,
+        ha="center",
+        va="bottom",
+    )
+
+
+def _calc_metrics(
+    binary: np.ndarray,
+    savepath: Path,
+    spacing: np.ndarray,
+    substratum: np.ndarray | None = None,
+) -> list[tuple]:
+    if not _is_binary(binary):
+        raise ValueError("Input image not binary.")
+
+    Hmap = _calc_height_map(
+        binary,
+        substratum,
+        spacing[1],
+    )
+    BVmap = _calc_bv_map(
+        binary,
+        substratum,
+        spacing[1],
+    )
+
+    bscans, _, lateral = binary.shape
+    spacing_factor = spacing[0] * spacing[2]
+    valid = Hmap > 0
+
+    # H-/BV-map independent metrics
+    pixel_count = np.sum(binary != 0)
+    substratum_area = bscans * lateral * spacing_factor
+    biovolume_dense = np.sum(BVmap)
+    biovolume_total = np.sum(Hmap) * spacing_factor
+    porosity = 1 - (biovolume_total / biovolume_dense)  # percentage value [0, 1]
+    substratum_coverage = np.sum(valid) / (bscans * lateral)  # percentage value [0, 1]
+
+    #! question: use valid or not -> how does it influence real world properties if left out?
+    # Hmap based metrics
+    min_Hmap = np.min(Hmap[valid])
+    max_Hmap = np.max(Hmap[valid])
+    mean_Hmap = np.mean(Hmap[valid])
+    std_Hmap = np.std(Hmap[valid])
+    Ra_Hmap = (
+        biovolume_total / substratum_area
+    )  # Mittenrauwert = Volumen unter Surface / flat Surface Area [µm]
+    Rq_Hmap = std_Hmap  # quadratische Rauheit (engl. R_rms=root-mean-squared roughness)
+    R_coeff = Ra_Hmap / np.mean(Hmap)  # Roughness coefficient for flow calculations
+
+    # BVmap based metrics
+    # min_BVmap = np.min(BVmap[valid])
+    # max_BVmap = np.max(BVmap[valid])
+    mean_height_BVmap = np.mean(BVmap[valid]) / spacing_factor
+    std_height_BVmap = np.std(BVmap[valid]) / spacing_factor
+    Ra_BVmap = biovolume_dense / substratum_area
+    Rq_BVmap = std_height_BVmap
+
+    # for csv with rows: param-name, unit, value
+    results = [
+        ("file", "-", savepath.stem),
+        ("px_count", "# px", pixel_count),
+        ("substratum_area", "µm²", substratum_area),
+        ("BV_dense", "µm³", biovolume_dense),
+        ("BV_porous", "µm³", biovolume_total),
+        ("porosity", "-", porosity),
+        ("substratum_coverage", "(%)", substratum_coverage),
+        ("min_height_Hmap", "µm", min_Hmap),
+        ("max_height_Hmap", "µm", max_Hmap),
+        ("mean_height_Hmap", "µm", mean_Hmap),
+        ("std_Hmap", "µm", std_Hmap),
+        ("Ra_Hmap", "µm", Ra_Hmap),
+        ("Rq_Hmap", "µm", Rq_Hmap),
+        ("R_coeff", "-", R_coeff),
+        ("mean_height_BVmap", "µm", mean_height_BVmap),
+        ("std_height_BVmap", "µm", std_height_BVmap),
+        ("Ra_BVmap", "µm", Ra_BVmap),
+        ("Rq_BVmap", "µm", Rq_BVmap),
+    ]
+
+    return results
+
+
+def _save_or_append_metrics(results, path: Path) -> None:
+    """Save metrics on first call, append on subsequent calls."""
+    names, units, values = zip(*results)
+    new_row = pd.DataFrame([values], columns=names)
+
+    if path.exists():
+        df_existing = pd.read_csv(path)
+        units_row = df_existing.iloc[0]
+        data_rows = df_existing.iloc[1:]
+
+        df_units = pd.DataFrame([units_row.values], columns=names)
+        df_data = pd.concat([data_rows, new_row], ignore_index=True)
+        df_final = pd.concat([df_units, df_data], ignore_index=True)
+    else:
+        df_units = pd.DataFrame([units], columns=names)
+        df_final = pd.concat([df_units, new_row], ignore_index=True)
+
+    df_final.to_csv(path, sep=";", index=False)
+
+
+def _reconstruct_substratum(binary_image: np.ndarray) -> np.ndarray:
+    """Finds the substratum in a binary image by retrieving the lowest non-zero pixel"""
+    if not _is_binary(binary_image):
+        raise ValueError("Input image is not binary")
+
+    flipped = np.flip(binary_image, axis=1)  # flip along axial (=axis 1)
+    substratum_flipped = np.argmax(flipped, axis=1)
+
+    substratum = binary_image.shape[1] - 1 - substratum_flipped
+
+    # interpolate where substratum_flipped==0, indicating no non-zero value in that a-scan
+    substratum_interp = substratum.astype(np.float32)
+    gaps = substratum_flipped == 0
+    substratum_interp[gaps] = np.nan
+    valid = ~np.isnan(substratum_interp)
+
+    Z, X = np.indices(substratum_interp.shape)
+    points = np.column_stack((Z[valid], X[valid]))
+    values = substratum_interp[valid]
+
+    interpolated = griddata(points, values, (Z, X), method="linear")
+
+    if np.isnan(interpolated).any():
+        nearest = griddata(points, values, (Z, X), method="nearest")
+        interpolated[np.isnan(interpolated)] = nearest[np.isnan(interpolated)]
+
+    substratum = np.clip(np.rint(interpolated), 0, binary_image.shape[1] - 1).astype(
+        np.uint8
+    )
+
+    return substratum
+
+
+# endregion HELPERS
