@@ -292,9 +292,6 @@ def enhance_contrast(
         for bscan in range(b_scans):
             copy[bscan] = clahe.apply(copy[bscan])
 
-    else:
-        raise ValueError(f"Unknown method: {method}")
-
     return convert_to_8bit(copy)
 
 
@@ -438,7 +435,7 @@ def create_bv_map(
     bv_map = _calc_bv_map(
         binary=binary,
         substratum=substratum,
-        axial_spacing=spacing[1] if spacing is not None else None,
+        spacing=spacing if spacing is not None else None,
     )
 
     fig = _plot_bv_map(
@@ -468,11 +465,12 @@ def create_bv_map(
 @register("save_metrics")
 def save_metrics(
     binary: np.ndarray,
+    layername: str,
     savepath: Path,
     spacing: np.ndarray,
     substratum: np.ndarray | None = None,
 ) -> None:
-    results = _calc_metrics(binary, savepath, spacing, substratum)
+    results = _calc_metrics(binary, layername, spacing, substratum)
 
     _save_or_append_metrics(results, savepath)
 
@@ -598,12 +596,7 @@ def _calc_height_map(
 
     untilted = untilt(binary, substratum)
 
-    hm_inverted = np.argmax(
-        untilted, axis=1
-    )  # this gives higher values for visually lower biofilm -> take inverse
-    hm = (
-        binary.shape[1] - hm_inverted + 1
-    )  # add 1 to account for zero-indexing, so that substratum gets height 1 instead of 0
+    hm = np.argmax(np.flip(untilted, axis=1), axis=1)
     # set height indices to 0 where no biofilm signal occurs
     hm[~np.any(binary, axis=1)] = 0
 
@@ -663,7 +656,7 @@ def _plot_height_map(
 def _calc_bv_map(
     binary: np.ndarray,
     substratum: np.ndarray | None = None,
-    axial_spacing: float | None = None,
+    spacing: np.ndarray | list[float] | None = None,
 ) -> np.ndarray:
     if not _is_binary(binary):
         raise ValueError("Input stack is not binary.")
@@ -672,8 +665,10 @@ def _calc_bv_map(
 
     bv_map = np.count_nonzero(untilted, axis=1).astype(np.float32)
 
-    if axial_spacing is not None:
-        bv_map = bv_map * (axial_spacing * 1000.0)
+    if spacing is not None:
+        bv_map = bv_map * (spacing[1] * 1000.0)  # gives "dense" height in µm
+        area = spacing[0] * spacing[2] * 1000000.0  # mm² to µm²
+        bv_map = bv_map * area  # convert to biovolume in µm³
 
     return bv_map
 
@@ -785,7 +780,7 @@ def _create_horizontal_scale_bar(
 
 def _calc_metrics(
     binary: np.ndarray,
-    savepath: Path,
+    layername: str,
     spacing: np.ndarray,
     substratum: np.ndarray | None = None,
 ) -> list[tuple]:
@@ -800,19 +795,19 @@ def _calc_metrics(
     BVmap = _calc_bv_map(
         binary,
         substratum,
-        spacing[1],
+        spacing,
     )
 
     bscans, _, lateral = binary.shape
-    spacing_factor = spacing[0] * spacing[2]
+    spacing_factor = spacing[0] * spacing[2] * 1000000.0  # mm² to µm²
     valid = Hmap > 0
 
     # H-/BV-map independent metrics
     pixel_count = np.sum(binary != 0)
     substratum_area = bscans * lateral * spacing_factor
     biovolume_dense = np.sum(BVmap)
-    biovolume_total = np.sum(Hmap) * spacing_factor
-    porosity = 1 - (biovolume_total / biovolume_dense)  # percentage value [0, 1]
+    biovolume_porous = np.sum(Hmap) * spacing_factor
+    porosity = 1 - (biovolume_dense / biovolume_porous)  # percentage value [0, 1]
     substratum_coverage = np.sum(valid) / (bscans * lateral)  # percentage value [0, 1]
 
     #! question: use valid or not -> how does it influence real world properties if left out?
@@ -821,40 +816,32 @@ def _calc_metrics(
     max_Hmap = np.max(Hmap[valid])
     mean_Hmap = np.mean(Hmap[valid])
     std_Hmap = np.std(Hmap[valid])
-    Ra_Hmap = (
-        biovolume_total / substratum_area
-    )  # Mittenrauwert = Volumen unter Surface / flat Surface Area [µm]
-    Rq_Hmap = std_Hmap  # quadratische Rauheit (engl. R_rms=root-mean-squared roughness)
-    R_coeff = Ra_Hmap / np.mean(Hmap)  # Roughness coefficient for flow calculations
+    Ra = np.mean(np.abs(Hmap[valid] - mean_Hmap))  # Mittenrauwert [µm]
+    Rq = std_Hmap  # quadratische Rauheit (engl. R_rms=root-mean-squared roughness)
+    R_coeff = Ra / np.mean(Hmap)  # Roughness coefficient for flow calculations
 
     # BVmap based metrics
-    # min_BVmap = np.min(BVmap[valid])
-    # max_BVmap = np.max(BVmap[valid])
-    mean_height_BVmap = np.mean(BVmap[valid]) / spacing_factor
-    std_height_BVmap = np.std(BVmap[valid]) / spacing_factor
-    Ra_BVmap = biovolume_dense / substratum_area
-    Rq_BVmap = std_height_BVmap
+    # mean_local_volume = np.mean(BVmap[valid])
+    # std_local_volume = np.std(BVmap[valid])
 
     # for csv with rows: param-name, unit, value
     results = [
-        ("file", "-", savepath.stem),
+        ("file", "-", layername),
         ("px_count", "# px", pixel_count),
         ("substratum_area", "µm²", substratum_area),
         ("BV_dense", "µm³", biovolume_dense),
-        ("BV_porous", "µm³", biovolume_total),
-        ("porosity", "-", porosity),
+        ("BV_porous", "µm³", biovolume_porous),
+        ("porosity", "(%)", porosity),
         ("substratum_coverage", "(%)", substratum_coverage),
-        ("min_height_Hmap", "µm", min_Hmap),
-        ("max_height_Hmap", "µm", max_Hmap),
-        ("mean_height_Hmap", "µm", mean_Hmap),
-        ("std_Hmap", "µm", std_Hmap),
-        ("Ra_Hmap", "µm", Ra_Hmap),
-        ("Rq_Hmap", "µm", Rq_Hmap),
+        ("min_height", "µm", min_Hmap),
+        ("max_height", "µm", max_Hmap),
+        ("mean_height", "µm", mean_Hmap),
+        ("std_height", "µm", std_Hmap),
+        ("Ra", "µm", Ra),
+        ("Rq", "µm", Rq),
         ("R_coeff", "-", R_coeff),
-        ("mean_height_BVmap", "µm", mean_height_BVmap),
-        ("std_height_BVmap", "µm", std_height_BVmap),
-        ("Ra_BVmap", "µm", Ra_BVmap),
-        ("Rq_BVmap", "µm", Rq_BVmap),
+        # ("mean_local_volume", "µm³", mean_local_volume),
+        # ("std_local_volume", "µm³", std_local_volume),
     ]
 
     return results
@@ -862,22 +849,36 @@ def _calc_metrics(
 
 def _save_or_append_metrics(results, path: Path) -> None:
     """Save metrics on first call, append on subsequent calls."""
-    names, units, values = zip(*results)
-    new_row = pd.DataFrame([values], columns=names)
+    parameters, units, values = zip(*results)
+
+    columns = pd.MultiIndex.from_tuples(
+        list(zip(parameters, units)), names=["parameter", "unit"]
+    )
+
+    new_row = pd.DataFrame([values], columns=columns)
+    new_row = new_row.round(
+        {(parameter, unit): 4 if unit == "(%)" else 1 for parameter, unit, _ in results}
+    )
 
     if path.exists():
-        df_existing = pd.read_csv(path)
-        units_row = df_existing.iloc[0]
-        data_rows = df_existing.iloc[1:]
+        df_existing = pd.read_csv(
+            path,
+            sep=";",
+            decimal=",",
+            encoding="utf-8-sig",
+            header=[0, 1],  # parameters and units rows
+        )
 
-        df_units = pd.DataFrame([units_row.values], columns=names)
-        df_data = pd.concat([data_rows, new_row], ignore_index=True)
-        df_final = pd.concat([df_units, df_data], ignore_index=True)
+        if list(df_existing.columns) != list(columns):
+            raise ValueError(
+                f"Metric columns do not match existing csv data.\nExisting: {list(df_existing.columns)}\nNew: {list(columns)}"
+            )
+
+        df_final = pd.concat([df_existing, new_row], ignore_index=True)
     else:
-        df_units = pd.DataFrame([units], columns=names)
-        df_final = pd.concat([df_units, new_row], ignore_index=True)
+        df_final = new_row
 
-    df_final.to_csv(path, sep=";", index=False)
+    df_final.to_csv(path, sep=";", decimal=",", index=False, encoding="utf-8-sig")
 
 
 def _reconstruct_substratum(binary_image: np.ndarray) -> np.ndarray:

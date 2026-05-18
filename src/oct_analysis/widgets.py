@@ -2,6 +2,7 @@
 # Python native imports
 from typing import Literal, cast
 from pathlib import Path
+import json
 
 # Third party imports
 from magicgui import magic_factory
@@ -1093,9 +1094,10 @@ def save_metrics_widget(
 
     fn.save_metrics(
         asarray(binary.data),
+        binary.name,
         Path(savepath),
         asarray(spacing),
-        asarray(substratum) if substratum is not None else None,
+        asarray(substratum.data) if substratum is not None else None,
     )
 
     recorder.record(
@@ -1116,6 +1118,28 @@ def save_metrics_widget(
 
 
 # region WIDGET_DEV
+@magic_factory(
+    call_button="Set Spacing",
+    spacing_bscans={"label": "B-Scan Spacing [Y]", "widget_type": "LineEdit"},
+    spacing_axial={"label": "Axial Spacing [Z]", "widget_type": "LineEdit"},
+    spacing_lateral={"label": "Lateral Spacing [X]", "widget_type": "LineEdit"},
+)
+def set_spacing_widget(
+    layer: Layer, spacing_bscans: str, spacing_axial: str, spacing_lateral: str
+):
+    layer.metadata["spacing"] = (
+        float(spacing_bscans),
+        float(spacing_axial),
+        float(spacing_lateral),
+    )
+    if hasattr(layer, "affine") and layer.affine is not None:
+        # Update affine matrix to reflect new spacing
+        new_affine = np.copy(layer.affine.affine_matrix)
+        np.fill_diagonal(new_affine, list(layer.metadata["spacing"]) + [1])
+        layer.affine = new_affine
+    layer.refresh()
+
+
 @magic_factory(
     call_button="Preview Height Map",
     max_h={"label": "Max Height [µm]", "max": 10000},
@@ -1162,7 +1186,7 @@ def print_metadata(layer: Layer):
         "contrast_limits": layer.contrast_limits if isinstance(layer, Image) else None,
         "layer_type": layer._type_string,
     }
-    return str(info)
+    return json.dumps(info, indent=2, default=str)
 
 
 # endregion WIDGET_DEV
