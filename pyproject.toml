@@ -26,7 +26,7 @@ dependencies = [
 
 [dependency-groups]
 additional = [
-    "napari>=0.6.6",
+    "napari==0.7.0",
     "pyqt6>=6.10.2",
 ]
 dev = [
