@@ -218,12 +218,12 @@ def read_oct(path: str | list[str]):
     # convert to LayerData tuples
     layer_data = []
     for oct in oct_files:
-        data = oct.stack
+        data = (oct.stack * 255).astype(np.uint8)  # convert to uint8 for plugin
         napari_metadata = {
             "axis_labels": ("B-Scans", "Axial (depth)", "Lateral"),
             "affine": oct.affine,
             "units": ("µm", "µm", "µm"),
-            "contrast_limits": (0, 1),  # since data is normalized to [0,1]
+            "contrast_limits": (0, 255),
             "scale": (
                 1000,
                 1000,
