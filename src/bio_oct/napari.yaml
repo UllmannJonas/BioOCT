@@ -1,179 +1,179 @@
 # info: menu-command must be identical to command-id
 
-name: oct_analysis
-display_name: OCT Analysis
+name: bio_oct
+display_name: BioOCT
 
 contributions:
   # --- Contributions Definition ---
   commands:
   # Reader
-  - id: oct_analysis.oct_reader
+  - id: bio_oct.oct_reader
     title: Read ".oct" files
-    python_name: oct_analysis._reader:get_reader_fn
+    python_name: bio_oct._reader:get_reader_fn
 
   ## Widgets
   # Recording Panel
-  - id: oct_analysis.pipeline_manager
+  - id: bio_oct.pipeline_manager
     title: Pipeline Manager
-    python_name: oct_analysis.panel:PipelineManager
+    python_name: bio_oct.panel:PipelineManager
   # Median Filter
-  - id: oct_analysis.median_filter
+  - id: bio_oct.median_filter
     title: Median Filter
-    python_name: oct_analysis.widgets:median_filter_widget
+    python_name: bio_oct.widgets:median_filter_widget
   # Gauss Filter
-  - id: oct_analysis.gauss_filter
+  - id: bio_oct.gauss_filter
     title: Gauss Filter
-    python_name: oct_analysis.widgets:gaussian_filter_widget
+    python_name: bio_oct.widgets:gaussian_filter_widget
   # Sobel Filter
-  - id: oct_analysis.sobel_filter
+  - id: bio_oct.sobel_filter
     title: Sobel Filter
-    python_name: oct_analysis.widgets:sobel_filter_widget
+    python_name: bio_oct.widgets:sobel_filter_widget
   # Locate Intensity Coordinates
-  - id: oct_analysis.locate_intensity
+  - id: bio_oct.locate_intensity
     title: Locate Intensity
-    python_name: oct_analysis.widgets:LocateIntensityWidget
+    python_name: bio_oct.widgets:LocateIntensityWidget
   # Define ROI
-  - id: oct_analysis.define_roi
+  - id: bio_oct.define_roi
     title: Define ROI
-    python_name: oct_analysis.widgets:DefineRoiWidget
+    python_name: bio_oct.widgets:DefineRoiWidget
   # # 8bit Converter
-  # - id: oct_analysis.convert_to_8bit
+  # - id: bio_oct.convert_to_8bit
   #   title: Convert to 8bit
-  #   python_name: oct_analysis.widgets:convert_to_8bit_widget
+  #   python_name: bio_oct.widgets:convert_to_8bit_widget
   # Remove Small Objects
-  - id: oct_analysis.remove_outliers
+  - id: bio_oct.remove_outliers
     title: Remove Small Objects
-    python_name: oct_analysis.widgets:remove_outliers_widget
+    python_name: bio_oct.widgets:remove_outliers_widget
   # Interpolate Gaps
-  - id: oct_analysis.interpolate_gaps
+  - id: bio_oct.interpolate_gaps
     title: Interpolate Gaps
-    python_name: oct_analysis.widgets:interpolate_gaps_widget
+    python_name: bio_oct.widgets:interpolate_gaps_widget
   # Zero Out Areas
-  - id: oct_analysis.zero_out
+  - id: bio_oct.zero_out
     title: Zero Out Area
-    python_name: oct_analysis.widgets:zero_out_widget
+    python_name: bio_oct.widgets:zero_out_widget
   # Replace Reflection Lines
-  - id: oct_analysis.replace_reflection
+  - id: bio_oct.replace_reflection
     title: Replace Reflection
-    python_name: oct_analysis.widgets:replace_reflection_widget
+    python_name: bio_oct.widgets:replace_reflection_widget
   # Untilt
-  - id: oct_analysis.untilt
+  - id: bio_oct.untilt
     title: Untilt
-    python_name: oct_analysis.widgets:untilt_widget
+    python_name: bio_oct.widgets:untilt_widget
   # Enhance Contrast
-  - id: oct_analysis.enhance_contrast
+  - id: bio_oct.enhance_contrast
     title: Enhance Contrast
-    python_name: oct_analysis.widgets:enhance_contrast_widget
+    python_name: bio_oct.widgets:enhance_contrast_widget
   # Thresholding
-  - id: oct_analysis.threshold
+  - id: bio_oct.threshold
     title: Thresholding
-    python_name: oct_analysis.widgets:ThresholdWidget
+    python_name: bio_oct.widgets:ThresholdWidget
   # TIFF export
-  - id: oct_analysis.export_to_tiff
+  - id: bio_oct.export_to_tiff
     title: Export to TIFF
-    python_name: oct_analysis.widgets:export_to_tiff_widget
+    python_name: bio_oct.widgets:export_to_tiff_widget
   # NIfTI export
-  - id: oct_analysis.export_to_nifti
+  - id: bio_oct.export_to_nifti
     title: Export to NIfTI
-    python_name: oct_analysis.widgets:export_to_nifti_widget
+    python_name: bio_oct.widgets:export_to_nifti_widget
   # Height Map creation
-  - id: oct_analysis.height_map
+  - id: bio_oct.height_map
     title: Create Height Map
-    python_name: oct_analysis.widgets:height_map_widget
+    python_name: bio_oct.widgets:height_map_widget
   # Biovolume Map creation
-  - id: oct_analysis.bv_map
+  - id: bio_oct.bv_map
     title: Create BioVol Map
-    python_name: oct_analysis.widgets:bv_map_widget
-  - id: oct_analysis.save_metrics
+    python_name: bio_oct.widgets:bv_map_widget
+  - id: bio_oct.save_metrics
     title: Save Metrics
-    python_name: oct_analysis.widgets:save_metrics_widget
+    python_name: bio_oct.widgets:save_metrics_widget
 
   #*======================================
   # dev widgets
-  - id: oct_analysis.preview_height_map
+  - id: bio_oct.preview_height_map
     title: "dev: preview_height_map"
-    python_name: oct_analysis.widgets:preview_height_map_widget
-  - id: oct_analysis.print_metadata
+    python_name: bio_oct.widgets:preview_height_map_widget
+  - id: bio_oct.print_metadata
     title: "dev: print_metadata"
-    python_name: oct_analysis.widgets:print_metadata
-  - id: oct_analysis.set_spacing
+    python_name: bio_oct.widgets:print_metadata
+  - id: bio_oct.set_spacing
     title: "dev: set_spacing"
-    python_name: oct_analysis.widgets:set_spacing_widget
-  - id: oct_analysis.expand_coords
+    python_name: bio_oct.widgets:set_spacing_widget
+  - id: bio_oct.expand_coords
     title: "dev: expand_coords"
-    python_name: oct_analysis.widgets:expand_coords
+    python_name: bio_oct.widgets:expand_coords
 
   #* =============== Menu Items
-  - id: oct_analysis.scale1000
+  - id: bio_oct.scale1000
     title: Scale mm to µm
-    python_name: oct_analysis.menus:scale1000
-  - id: oct_analysis.plot_outliers
+    python_name: bio_oct.menus:scale1000
+  - id: bio_oct.plot_outliers
     title: Plot Object Sizes
-    python_name: oct_analysis.menus:plot_connected_components
+    python_name: bio_oct.menus:plot_connected_components
 
 
   # --- Implementation/Registration ---
   # Reader hook
   readers:
-  - command: oct_analysis.oct_reader
+  - command: bio_oct.oct_reader
     accepts_directories: true
     filename_patterns:
     - '*.oct'
 
   # Widget hooks
   widgets:
-  - command: oct_analysis.pipeline_manager
+  - command: bio_oct.pipeline_manager
     display_name: Pipeline Manager
-  # - command: oct_analysis.convert_to_8bit
+  # - command: bio_oct.convert_to_8bit
   #   display_name: Convert to 8bit
-  - command: oct_analysis.median_filter
+  - command: bio_oct.median_filter
     display_name: "Filter: Median"
-  - command: oct_analysis.gauss_filter
+  - command: bio_oct.gauss_filter
     display_name: "Filter: Gauss"
-  - command: oct_analysis.sobel_filter
+  - command: bio_oct.sobel_filter
     display_name: "Filter: Sobel"
-  - command: oct_analysis.locate_intensity
+  - command: bio_oct.locate_intensity
     display_name: Locate Intensity
-  - command: oct_analysis.define_roi
+  - command: bio_oct.define_roi
     display_name: Define ROI
-  - command: oct_analysis.remove_outliers
+  - command: bio_oct.remove_outliers
     display_name: Remove Small Objects
-  - command: oct_analysis.interpolate_gaps
+  - command: bio_oct.interpolate_gaps
     display_name: Interpolate Gaps
-  - command: oct_analysis.zero_out
+  - command: bio_oct.zero_out
     display_name: Zero Out Area
-  - command: oct_analysis.replace_reflection
+  - command: bio_oct.replace_reflection
     display_name: Replace Reflection
-  - command: oct_analysis.untilt
+  - command: bio_oct.untilt
     display_name: Untilt
-  - command: oct_analysis.enhance_contrast
+  - command: bio_oct.enhance_contrast
     display_name: Enhance Contrast
-  - command: oct_analysis.threshold
+  - command: bio_oct.threshold
     display_name: Thresholding
-  - command: oct_analysis.export_to_tiff
+  - command: bio_oct.export_to_tiff
     display_name: Export to TIFF
-  - command: oct_analysis.export_to_nifti
+  - command: bio_oct.export_to_nifti
     display_name: Export to NIfTI
-  - command: oct_analysis.height_map
+  - command: bio_oct.height_map
     display_name: Create Height Map
-  - command: oct_analysis.bv_map
+  - command: bio_oct.bv_map
     display_name: Create BioVol Map
-  - command: oct_analysis.save_metrics
+  - command: bio_oct.save_metrics
     display_name: Save Metrics
 
   #*============================================
   # dev widgets
-  - command: oct_analysis.preview_height_map
+  - command: bio_oct.preview_height_map
     display_name: "dev: preview_height_map"
-  - command: oct_analysis.print_metadata
+  - command: bio_oct.print_metadata
     display_name: "dev: print_metadata"
-  - command: oct_analysis.set_spacing
+  - command: bio_oct.set_spacing
     display_name: "dev: set_spacing"
-  - command: oct_analysis.expand_coords
+  - command: bio_oct.expand_coords
     display_name: "dev: expand_coords"
 
   #*===================== MENUS
   menus:
     napari/layers/visualize:
-      - command: oct_analysis.scale1000
-      - command: oct_analysis.plot_outliers
+      - command: bio_oct.scale1000
+      - command: bio_oct.plot_outliers

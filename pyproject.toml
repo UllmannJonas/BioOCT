@@ -1,5 +1,5 @@
 [project]
-name = "oct_analysis"
+name = "BioOCT"
 version = "0.3"
 description = "A napari plugin for analyzing optical coherence tomography (OCT) from biofilm growing on substratum."
 authors = [
@@ -38,18 +38,15 @@ dev = [
 ]
 
 [project.entry-points."napari.manifest"]
-"oct-analysis" = "oct_analysis:napari.yaml"
+"BioOCT" = "bio_oct:napari.yaml"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/oct_analysis"]
-include = ["src/oct_analysis/napari.yaml"]
-
-[tool.uv.sources]
-bio-oct = { path = "../bio-oct/dist/bio_oct-0.3-py3-none-any.whl" }
+packages = ["src/bio_oct"]
+include = ["src/bio_oct/napari.yaml"]
 
 [tool.pyright]
 exclude = ["**/node_modules", "**/__pycache__", "**/.venv"]
