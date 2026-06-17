@@ -66,7 +66,7 @@ def convert_to_8bit_widget(image: Image) -> LayerDataTuple:
     recorder.record(
         function=Fn.CONVERT_TO_8BIT,
         input_layers={"image": image.name},
-        output_layer=image.name,
+        output_layer=None,
         params={},
     )
     p = get_panel()
@@ -370,11 +370,12 @@ class LocateIntensityWidget(QWidget):
             )
 
         # --- record ---
+        record_params = {"ymin": ymin, "ymax": ymax, "y_offset": offset}
         recorder.record(
             function="locate_intensity",
             input_layers={"image": image_layer.name},
             output_layer=output_name,
-            params={"ymin": ymin, "ymax": ymax, "y_offset": offset},
+            params=record_params,
         )
         panel = get_panel()
         if panel is not None:
@@ -384,6 +385,190 @@ class LocateIntensityWidget(QWidget):
     def _get_selected_image_layer(self):
         name = self.image_combo.currentText()
         if not name:
+            return None
+        try:
+            layer = self.viewer.layers[name]
+            return layer if isinstance(layer, Image) else None
+        except KeyError:
+            return None
+
+
+class DefineRoiWidget(QWidget):
+    def __init__(self, viewer: "napari.viewer.Viewer", parent=None):
+        super().__init__(parent)
+        self.viewer = viewer
+
+        self.image_label = QLabel("Image:")
+        self.image_combo = QComboBox()
+        self.image_combo.setMinimumWidth(160)
+        self._refresh_image_combo()
+
+        image_row = QHBoxLayout()
+        image_row.addWidget(self.image_label)
+        image_row.addWidget(self.image_combo, stretch=1)
+
+        self.points_group = QGroupBox("Corner Points (B-Scan, Lateral)")
+        points_layout = QVBoxLayout()
+        self.point_spins: list[tuple[QSpinBox, QSpinBox]] = []
+
+        for i in range(4):
+            b_spin = QSpinBox()
+            lat_spin = QSpinBox()
+
+            point_row = QHBoxLayout()
+            point_row.addWidget(QLabel(f"P{i + 1}:"))
+            point_row.addWidget(QLabel("B-Scan:"))
+            point_row.addWidget(b_spin)
+            point_row.addWidget(QLabel("Lateral:"))
+            point_row.addWidget(lat_spin)
+            points_layout.addLayout(point_row)
+
+            self.point_spins.append((b_spin, lat_spin))
+
+        self.points_group.setLayout(points_layout)
+
+        self.apply_btn = QPushButton("Apply ROI")
+
+        layout = QVBoxLayout()
+        layout.addLayout(image_row)
+        layout.addWidget(self.points_group)
+        layout.addWidget(self.apply_btn)
+        layout.addStretch()
+        self.setLayout(layout)
+
+        viewer.layers.events.inserted.connect(self._refresh_image_combo)
+        viewer.layers.events.removed.connect(self._refresh_image_combo)
+
+        self.image_combo.currentTextChanged.connect(self._on_image_changed)
+        for b_spin, lat_spin in self.point_spins:
+            b_spin.valueChanged.connect(self._update_preview)
+            lat_spin.valueChanged.connect(self._update_preview)
+        self.apply_btn.clicked.connect(self._on_apply)
+
+        self._on_image_changed()
+
+    def _refresh_image_combo(self, _event=None):
+        current = self.image_combo.currentText()
+        self.image_combo.blockSignals(True)
+        self.image_combo.clear()
+        self.image_combo.addItem("None")
+        for layer in self.viewer.layers:
+            if isinstance(layer, Image):
+                self.image_combo.addItem(layer.name)
+        idx = self.image_combo.findText(current)
+        self.image_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.image_combo.blockSignals(False)
+
+    def _on_image_changed(self, _=None):
+        image_layer = self._get_selected_image_layer()
+        if image_layer is None:
+            return
+
+        b_scans, _, lateral = image_layer.data.shape
+
+        for b_spin, lat_spin in self.point_spins:
+            b_spin.setRange(0, max(b_scans - 1, 0))
+            lat_spin.setRange(0, max(lateral - 1, 0))
+
+        defaults = [
+            (0, 0),
+            (0, lateral - 1),
+            (b_scans - 1, lateral - 1),
+            (b_scans - 1, 0),
+        ]
+        for (u_spin, v_spin), (u, v) in zip(self.point_spins, defaults):
+            u_spin.blockSignals(True)
+            v_spin.blockSignals(True)
+            u_spin.setValue(u)
+            v_spin.setValue(v)
+            u_spin.blockSignals(False)
+            v_spin.blockSignals(False)
+        self._update_preview()
+
+    def _get_points(self) -> list[tuple[int, int]]:
+        return [
+            (int(b_spin.value()), int(lat_spin.value()))
+            for b_spin, lat_spin in self.point_spins
+        ]
+
+    def _update_preview(self, _=None):
+        image_layer = self._get_selected_image_layer()
+        if image_layer is None:
+            return
+
+        points = np.asarray(self._get_points(), dtype=np.int32)
+        preview = fn._roi_to_volume(
+            points,
+            shape=image_layer.data.shape,
+        ).astype(np.uint8)
+
+        existing = [lay.name for lay in self.viewer.layers]
+        if "_roi_preview" in existing:
+            lay = self.viewer.layers["_roi_preview"]
+            lay.data = preview
+            lay.refresh()
+        else:
+            self.viewer.add_labels(
+                preview,
+                name="_roi_preview",
+                affine=image_layer.affine.affine_matrix,
+                scale=image_layer.scale,
+                opacity=0.3,
+            )
+
+    def _on_apply(self):
+        image_layer = self._get_selected_image_layer()
+        if image_layer is None:
+            return
+
+        points = self._get_points()
+
+        data = fn.define_roi(
+            asarray(image_layer.data),
+            points,
+        )
+
+        if "_roi" in image_layer.name:
+            output_name = image_layer.name
+        else:
+            output_name = f"{image_layer.name}_roi"
+
+        roi_metadata = {
+            **image_layer.metadata,
+            "roi_points": [list(point) for point in points],
+        }
+
+        existing = [lay.name for lay in self.viewer.layers]
+        if output_name in existing:
+            lay = self.viewer.layers[output_name]
+            lay.data = data
+            lay.metadata = roi_metadata
+            lay.refresh()
+        else:
+            self.viewer.add_image(
+                data,
+                name=output_name,
+                affine=image_layer.affine.affine_matrix,
+                metadata=roi_metadata,
+                scale=image_layer.scale,
+                axis_labels=image_layer.axis_labels,
+                units=image_layer.units,
+                contrast_limits=(0, 255) if data.dtype == np.uint8 else (0, 1),
+            )
+
+        recorder.record(
+            function="define_roi",
+            input_layers={"image": image_layer.name},
+            output_layer=output_name,
+            params={"points": [list(point) for point in points]},
+        )
+        panel = get_panel()
+        if panel is not None:
+            panel.refresh()
+
+    def _get_selected_image_layer(self):
+        name = self.image_combo.currentText()
+        if not name or name == "None":
             return None
         try:
             layer = self.viewer.layers[name]
@@ -429,7 +614,8 @@ def remove_outliers_widget(image: Labels, size: int = 0) -> LayerDataTuple:
 
 @magic_factory(call_button="Interpolate Gaps")
 def interpolate_gaps_widget(image: Labels) -> LayerDataTuple:
-    interpolated = fn.interpolate_gaps(asarray(image.data))
+    points = image.metadata.get("roi_points", None)
+    interpolated = fn.interpolate_gaps(asarray(image.data), points=points)
 
     if "interpolated" in image.name:
         output_name = image.name
@@ -995,28 +1181,29 @@ def height_map_widget(
         scalebar=scalebar,
         preview=preview,
         axes=axes,
-        savepath=savepath,
+        path=savepath,
     )
 
-    recorder.record(
-        function="create_height_map",
-        input_layers={
-            "binary": binary.name,
-            **({"substratum": substratum.name} if substratum is not None else {}),
-        },
-        output_layer=None,
-        params={
-            "spacing": spacing,  # * should stay the same for a batch -> keep static in record+replay
-            "max_h": max_h,
-            "colorbar": colorbar,
-            "scalebar": scalebar,
-            "axes": axes,
-            "savepath": f"{SOURCE_DIR_PLACEHOLDER}/{LAYER_NAME_PLACEHOLDER}_Hmap.tiff",
-        },
-    )
-    p = get_panel()
-    if p is not None:
-        p.refresh()
+    if not preview:
+        recorder.record(
+            function="create_height_map",
+            input_layers={
+                "binary": binary.name,
+                **({"substratum": substratum.name} if substratum is not None else {}),
+            },
+            output_layer=None,
+            params={
+                "spacing": spacing,  # * should stay the same for a batch -> keep static in record+replay
+                "max_h": max_h,
+                "colorbar": colorbar,
+                "scalebar": scalebar,
+                "axes": axes,
+                "path": f"{SOURCE_DIR_PLACEHOLDER}/{LAYER_NAME_PLACEHOLDER}_Hmap.tiff",
+            },
+        )
+        p = get_panel()
+        if p is not None:
+            p.refresh()
 
 
 @magic_factory(
@@ -1051,43 +1238,41 @@ def bv_map_widget(
         scalebar=scalebar,
         preview=preview,
         axes=axes,
-        savepath=savepath,
+        path=savepath,
     )
 
-    recorder.record(
-        function="create_bv_map",
-        input_layers={
-            "binary": binary.name,
-            **({"substratum": substratum.name} if substratum is not None else {}),
-        },
-        output_layer=None,
-        params={
-            "spacing": spacing,  # * should stay the same for a batch -> keep static in record+replay
-            "max_h": max_h,
-            "colorbar": colorbar,
-            "scalebar": scalebar,
-            "axes": axes,
-            "savepath": f"{SOURCE_DIR_PLACEHOLDER}/{LAYER_NAME_PLACEHOLDER}_BVmap.tiff",
-        },
-    )
-    p = get_panel()
-    if p is not None:
-        p.refresh()
+    if not preview:
+        recorder.record(
+            function="create_bv_map",
+            input_layers={
+                "binary": binary.name,
+                **({"substratum": substratum.name} if substratum is not None else {}),
+            },
+            output_layer=None,
+            params={
+                "spacing": spacing,  # * should stay the same for a batch -> keep static in record+replay
+                "max_h": max_h,
+                "colorbar": colorbar,
+                "scalebar": scalebar,
+                "axes": axes,
+                "path": f"{SOURCE_DIR_PLACEHOLDER}/{LAYER_NAME_PLACEHOLDER}_BVmap.tiff",
+            },
+        )
+        p = get_panel()
+        if p is not None:
+            p.refresh()
 
 
 @magic_factory(
     call_button="Save Metrics to CSV",
-    savepath={"mode": "w", "label": "Save as:", "filter": "*.csv"},
 )
 def save_metrics_widget(
     binary: Labels,
     substratum: Labels | None = None,
-    savepath: Path = Path.home(),
-    # filename: str = ">give_a_filename<",
-    batch_export_path: str = "Path\\to\\batch_metrics.csv",
 ) -> None:
-    # source_dir = Path(binary.metadata.get("source_dir", Path.home()))
-    # savepath = source_dir / f"{binary.name}_BVmap.tiff"
+    source_dir = Path(binary.metadata.get("source_dir", Path.home()))
+    savepath = source_dir / f"{binary.name}_metrics.csv"
+    batch_export_path = f"{SOURCE_DIR_PLACEHOLDER}/batch_metrics.csv"
 
     spacing = binary.metadata.get("spacing")
     assert spacing is not None
@@ -1107,7 +1292,7 @@ def save_metrics_widget(
             **({"substratum": substratum.name} if substratum is not None else {}),
         },
         output_layer=None,
-        params={"spacing": spacing, "savepath": batch_export_path},
+        params={"spacing": spacing, "path": batch_export_path},
     )
     p = get_panel()
     if p is not None:
@@ -1187,6 +1372,32 @@ def print_metadata(layer: Layer):
         "layer_type": layer._type_string,
     }
     return json.dumps(info, indent=2, default=str)
+
+
+@magic_factory(
+    call_button="Expand Surface",
+    expand={"label": "Expand by [px]", "min": 0, "max": 10, "widget_type": "Slider"},
+)
+def expand_coords(coords: Labels, expand: int = 0) -> LayerDataTuple:
+    label = fn._get_label_id(asarray(coords.data))
+    surface = np.argmax(asarray(coords.data), axis=1)
+    z = np.arange(coords.data.shape[1])[None, :, None]
+
+    mask = (z >= (surface[:, None, :] - expand)) & (z <= (surface[:, None, :] + expand))
+    mask = mask.astype(np.uint8) * label
+
+    napari_metadata = {
+        "metadata": {**coords.metadata},
+        "affine": coords.affine.affine_matrix,
+        "units": coords.units,
+        "axis_labels": coords.axis_labels,
+        "scale": coords.scale,
+        "opacity": coords.opacity,
+        # new layer_name
+        "name": f"{coords.name}_expanded",
+    }
+
+    return cast(LayerDataTuple, (mask, napari_metadata, "labels"))
 
 
 # endregion WIDGET_DEV

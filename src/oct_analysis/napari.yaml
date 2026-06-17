@@ -32,10 +32,14 @@ contributions:
   - id: oct_analysis.locate_intensity
     title: Locate Intensity
     python_name: oct_analysis.widgets:LocateIntensityWidget
-  # 8bit Converter
-  - id: oct_analysis.convert_to_8bit
-    title: Convert to 8bit
-    python_name: oct_analysis.widgets:convert_to_8bit_widget
+  # Define ROI
+  - id: oct_analysis.define_roi
+    title: Define ROI
+    python_name: oct_analysis.widgets:DefineRoiWidget
+  # # 8bit Converter
+  # - id: oct_analysis.convert_to_8bit
+  #   title: Convert to 8bit
+  #   python_name: oct_analysis.widgets:convert_to_8bit_widget
   # Remove Small Objects
   - id: oct_analysis.remove_outliers
     title: Remove Small Objects
@@ -95,6 +99,9 @@ contributions:
   - id: oct_analysis.set_spacing
     title: "dev: set_spacing"
     python_name: oct_analysis.widgets:set_spacing_widget
+  - id: oct_analysis.expand_coords
+    title: "dev: expand_coords"
+    python_name: oct_analysis.widgets:expand_coords
 
   #* =============== Menu Items
   - id: oct_analysis.scale1000
@@ -117,8 +124,8 @@ contributions:
   widgets:
   - command: oct_analysis.pipeline_manager
     display_name: Pipeline Manager
-  - command: oct_analysis.convert_to_8bit
-    display_name: Convert to 8bit
+  # - command: oct_analysis.convert_to_8bit
+  #   display_name: Convert to 8bit
   - command: oct_analysis.median_filter
     display_name: "Filter: Median"
   - command: oct_analysis.gauss_filter
@@ -127,6 +134,8 @@ contributions:
     display_name: "Filter: Sobel"
   - command: oct_analysis.locate_intensity
     display_name: Locate Intensity
+  - command: oct_analysis.define_roi
+    display_name: Define ROI
   - command: oct_analysis.remove_outliers
     display_name: Remove Small Objects
   - command: oct_analysis.interpolate_gaps
@@ -160,6 +169,8 @@ contributions:
     display_name: "dev: print_metadata"
   - command: oct_analysis.set_spacing
     display_name: "dev: set_spacing"
+  - command: oct_analysis.expand_coords
+    display_name: "dev: expand_coords"
 
   #*===================== MENUS
   menus:

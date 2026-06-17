@@ -68,6 +68,26 @@ def convert_to_8bit(image: np.ndarray) -> np.ndarray:
     return converted
 
 
+@register("define_roi")
+def define_roi(
+    image: np.ndarray,
+    points: list[tuple[int, int]] | np.ndarray,
+    label_id: int = 1,
+) -> np.ndarray:
+    """Define a 3D ROI from four corners in the top-down (xy) view.
+
+    Points are (b_scan, lateral) pairs in voxel indices, defining a
+    quadrilateral that is extruded through all axial depths.
+    Voxels inside the ROI keep their original values; all outside are set to zero.
+    """
+
+    mask3d = _roi_to_volume(points, shape=image.shape)
+
+    roi_image = np.where(mask3d, image, 0).astype(image.dtype)
+
+    return roi_image
+
+
 @register(Fn.MEDIAN_FILTER)
 def median_filter(image: np.ndarray, size: int = 1) -> np.ndarray:
     _is_uint8(image)
@@ -107,36 +127,24 @@ def sobel_filter(image: np.ndarray) -> np.ndarray:
 
 @register("locate_intensity")
 def locate_intensity(
-    image: np.ndarray, ymin: int, ymax: int, y_offset: int = 0, label_id: int = 1
+    image: np.ndarray,
+    ymin: int,
+    ymax: int,
+    y_offset: int = 0,
+    label_id: int = 1,
 ) -> np.ndarray:
     if ymin >= ymax:
         raise ValueError(f"ymin must be less than ymax.\nymin={ymin}\nymax={ymax}")
     if ymin < 0 or ymax > image.shape[1]:
         raise ValueError("Index out of bounds.")
 
-    y_coords = np.argmax(image[:, ymin:ymax, :], axis=1)
+    search = image[:, ymin:ymax, :]
+    valid = np.any(image > 0, axis=1)  # Exclude A-scans with only zeros (roi masked)
+
+    y_coords = np.argmax(search, axis=1)
     y_coords = y_coords + ymin + y_offset
 
-    """
-    things for testing:
-    Smoothen ycoords:
-    # 1. argmax → Höhenkarte
-    y_coords = locate_substratum(...)
-
-    # 2. Grobe Ausreißer entfernen
-    y_med = median_filter(y_coords, size=(3, 5))
-
-    # 3. Sanfte physikalische Glättung
-    y_smooth = gaussian_filter(y_med.astype(float), sigma=(1, 2))
-    y_smooth = np.round(y_smooth).astype(int)
-
-    # 4. Correct with moving average per bscan
-    for each bscan:
-        create moving average of y_coords with window size X and put outliers back in place (if distance to moving average > threshold)
-
-    """
-
-    return _map_coords_to3D(y_coords, image.shape, label_id)
+    return _map_coords_to3D(y_coords, image.shape, label_id, valid=valid)
 
 
 @register("remove_outliers")
@@ -157,26 +165,53 @@ def remove_outliers(image: np.ndarray, outlier_size: int = 0) -> np.ndarray:
 
 
 @register("interpolate_gaps")
-def interpolate_gaps(image: np.ndarray) -> np.ndarray:
+def interpolate_gaps(
+    image: np.ndarray,
+    points: list[tuple[int, int]] | np.ndarray | None = None,
+) -> np.ndarray:
     label_id = _get_label_id(image)
 
-    surface = np.argmax(image, axis=1).astype(np.float32)
+    if points is not None:
+        pts = np.asarray(points, dtype=np.int32)
+        roi_mask = _roi_to_volume(pts, shape=image.shape)
+        in_roi = np.any(roi_mask, axis=1)  # only include A-scans in ROI
+    else:
+        in_roi = np.ones(
+            (image.shape[0], image.shape[2]), dtype=bool
+        )  # include all A-scans
 
-    gaps = np.all(image == 0, axis=1)
-    surface[gaps] = np.nan
-    valid = ~np.isnan(surface)
+    src_mask = in_roi & np.any(image > 0, axis=1)  # all points with labels inside roi
+    gaps_to_fill = in_roi & ~np.any(
+        image > 0, axis=1
+    )  # all points without labels inside roi
 
-    Z, X = np.indices(surface.shape)
-    points = np.column_stack((Z[valid], X[valid]))
-    values = surface[valid]
+    surface = np.argmax(image, axis=1).astype(np.float32)  # hight coordinates
+    surface[~in_roi] = np.nan  # ~ means "not"
+    surface[gaps_to_fill] = np.nan
 
-    interpolated = griddata(points, values, (Z, X), method="linear")
+    src_points = np.column_stack(np.where(src_mask))
+    values = surface[src_mask]
 
-    if np.isnan(interpolated).any():
-        nearest = griddata(points, values, (Z, X), method="nearest")
-        interpolated[np.isnan(interpolated)] = nearest[np.isnan(interpolated)]
+    if src_points.shape[0] == 0:
+        raise ValueError(
+            "No surface points available for interpolation. "
+            "Ensure the layer contains coordinate labels inside the ROI."
+        )
 
-    return _map_coords_to3D(interpolated, image.shape, label_id)
+    if not np.any(gaps_to_fill):
+        return _map_coords_to3D(surface, image.shape, label_id, valid=src_mask)
+
+    gap_points = np.column_stack(np.where(gaps_to_fill))
+    filled = griddata(src_points, values, gap_points, method="linear")
+
+    if np.isnan(filled).any():
+        nearest = griddata(src_points, values, gap_points, method="nearest")
+        filled[np.isnan(filled)] = nearest[np.isnan(filled)]
+
+    gap_rows, gap_cols = np.where(gaps_to_fill)
+    surface[gap_rows, gap_cols] = filled
+
+    return _map_coords_to3D(surface, image.shape, label_id, valid=in_roi)
 
 
 @register("zero_out")
@@ -388,7 +423,7 @@ def create_height_map(
     scalebar: bool = False,
     preview: bool = False,
     axes: bool = False,
-    savepath: Path | None = None,
+    path: Path | None = None,
 ) -> None:
     height_map = _calc_height_map(
         binary=binary,
@@ -406,18 +441,19 @@ def create_height_map(
     )
 
     if preview:
+        fig.set_dpi(300)
         plt.show(block=False)
     else:
-        if savepath is None:
-            raise ValueError("savepath must be provided if preview is not selected.")
+        if path is None:
+            raise ValueError("path must be provided if preview is not selected.")
 
-        dir = savepath.parent
-        filename = savepath.stem  # includes _Hmap
+        dir = path.parent
+        filename = path.stem  # includes _Hmap
         i = 1
-        while savepath.exists():
-            savepath = dir / f"{filename}_{i}.tiff"
+        while path.exists():
+            path = dir / f"{filename}_{i}.tiff"
             i += 1
-        fig.savefig(savepath)
+        fig.savefig(path, dpi=1200)
 
 
 @register("create_bv_map")
@@ -430,7 +466,7 @@ def create_bv_map(
     scalebar: bool = False,
     preview: bool = False,
     axes: bool = False,
-    savepath: Path | None = None,
+    path: Path | None = None,
 ) -> None:
     bv_map = _calc_bv_map(
         binary=binary,
@@ -448,31 +484,32 @@ def create_bv_map(
     )
 
     if preview:
+        fig.set_dpi(300)
         plt.show(block=False)
     else:
-        if savepath is None:
-            raise ValueError("savepath must be provided if preview is not selected.")
+        if path is None:
+            raise ValueError("path must be provided if preview is not selected.")
 
-        dir = savepath.parent
-        filename = savepath.stem  # includes BVmap
+        dir = path.parent
+        filename = path.stem  # includes BVmap
         i = 1
-        while savepath.exists():
-            savepath = dir / f"{filename}_{i}.tiff"
+        while path.exists():
+            path = dir / f"{filename}_{i}.tiff"
             i += 1
-        fig.savefig(savepath)
+        fig.savefig(path, dpi=1200)
 
 
 @register("save_metrics")
 def save_metrics(
     binary: np.ndarray,
     layername: str,
-    savepath: Path,
+    path: Path,
     spacing: np.ndarray,
     substratum: np.ndarray | None = None,
 ) -> None:
     results = _calc_metrics(binary, layername, spacing, substratum)
 
-    _save_or_append_metrics(results, savepath)
+    _save_or_append_metrics(results, path)
 
 
 # endregion FUNCTIONS
@@ -481,8 +518,31 @@ def save_metrics(
 # -----------------------------------------------------------------------
 # --- Helper functions --------------------------------------------------
 # region HELPERS
+def _roi_to_volume(
+    points: list[tuple[int, int]] | np.ndarray,
+    shape: tuple[int, ...],
+) -> np.ndarray:
+    points = np.asarray(points, dtype=np.int32)
+    if points.shape != (4, 2):
+        raise ValueError(
+            f"Expected exactly 4 (u, v) coordinate pairs, got shape {points.shape}."
+        )
+
+    cv_points = np.stack([points[:, 1], points[:, 0]], axis=1).reshape((-1, 1, 2))
+
+    roi2d = np.zeros((shape[0], shape[2]), dtype=np.uint8)
+    cv2.fillPoly(roi2d, [cv_points], 1)
+    roi2d = roi2d.astype(bool)
+    extruded = np.broadcast_to(roi2d[:, np.newaxis, :], shape).copy()
+
+    return extruded
+
+
 def _map_coords_to3D(
-    coords: np.ndarray, image_shape: tuple[int, int, int], label_id: int = 1
+    coords: np.ndarray,
+    image_shape: tuple[int, int, int],
+    label_id: int = 1,
+    valid: np.ndarray | None = None,
 ) -> np.ndarray:
     mapped = np.zeros(image_shape, dtype=np.uint8)
     b_scans, axial, lateral = image_shape
@@ -492,7 +552,10 @@ def _map_coords_to3D(
     )
     axial_idx = np.clip(np.rint(coords), 0, axial - 1).astype(int)
 
-    mapped[b_scans_idx, axial_idx, lateral_idx] = label_id
+    if valid is None:
+        valid = np.ones(coords.shape, dtype=bool)
+
+    mapped[b_scans_idx[valid], axial_idx[valid], lateral_idx[valid]] = label_id
 
     return mapped
 
@@ -616,7 +679,7 @@ def _plot_height_map(
     axes: bool = False,
 ) -> Figure:
     fig, ax = plt.subplots(constrained_layout=True)
-    fig.set_dpi(300)
+    fig.set_dpi(1200)
 
     # Calculate extent for physical units
     if spacing is not None:
@@ -635,7 +698,13 @@ def _plot_height_map(
 
     # Plot with extent and aspect='auto' to maintain correct aspect ratio with physical units
     im = ax.imshow(
-        height_map, cmap="inferno", vmin=0, vmax=vmax, extent=extent, aspect="equal"
+        height_map,
+        cmap="inferno",
+        vmin=0,
+        vmax=vmax,
+        extent=extent,
+        aspect="equal",
+        interpolation="nearest",
     )
 
     if axes and spacing is not None:
@@ -682,7 +751,7 @@ def _plot_bv_map(
     axes: bool = False,
 ) -> Figure:
     fig, ax = plt.subplots(constrained_layout=True)
-    fig.set_dpi(300)
+    fig.set_dpi(1200)
 
     # Calculate extent for physical units
     if spacing is not None:
@@ -713,7 +782,13 @@ def _plot_bv_map(
 
     # Plot with extent and aspect='auto' to maintain correct aspect ratio with physical units
     im = ax.imshow(
-        bv_map, cmap="inferno", vmin=0, vmax=max_vol, extent=extent, aspect="equal"
+        bv_map,
+        cmap="inferno",
+        vmin=0,
+        vmax=max_vol,
+        extent=extent,
+        aspect="equal",
+        interpolation="nearest",
     )
 
     if axes and spacing is not None:
