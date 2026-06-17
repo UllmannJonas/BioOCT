@@ -83,7 +83,7 @@ wheels = [
 ]
 
 [[package]]
-name = "biooct"
+name = "bio-oct"
 version = "0.3"
 source = { editable = "." }
 dependencies = [

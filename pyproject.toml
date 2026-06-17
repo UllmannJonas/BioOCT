@@ -1,5 +1,5 @@
 [project]
-name = "BioOCT"
+name = "bio_oct"
 version = "0.3"
 description = "A napari plugin for analyzing optical coherence tomography (OCT) from biofilm growing on substratum."
 authors = [
