@@ -43,10 +43,76 @@ COLORMAP: dict[str, int] = {
     "Green": 37,
     "Purple": 45,
 }
+
+# Centralized tooltips for widgets and their parameters.
+# Key = widget function name; special key "_widget" sets the tooltip on the whole widget.
+TOOLTIPS: dict[str, dict[str, str]] = {
+    "median": {
+        "_widget": "Apply a 2D median filter to each B-scan to reduce noise while preserving edges.",
+        "size": "Kernel size (odd). Larger values produce stronger smoothing.",
+    },
+    "gaussian": {
+        "_widget": "Apply a Gaussian blur to reduce gaussian noise.",
+        "sigma": "Standard deviation of Gaussian kernel. Higher values blur more.",
+    },
+    "sobel": {
+        "_widget": "Compute axial image gradient (Sobel) to highlight lateral edges.",
+        "image": "Input image layer to process.",
+    },
+    "contrast": {
+        "_widget": "Adjust image contrast using gamma, clipping, or CLAHE methods.",
+        "method": "Select contrast enhancement method.",
+        "gamma": "Gamma value for nonlinear brightness adjustment.",
+        "clip_low_percentile": "Lower histogram percentile to clip for contrast stretching.",
+        "clip_high_percentile": "Upper histogram percentile to clip for contrast stretching.",
+        "clahe_clip": "CLAHE clip limit; larger values increase local contrast but may amplify noise.",
+        "clahe_tile": "Size of local regions for CLAHE. Smaller tiles increase local detail.",
+    },
+    "remove_outliers": {
+        "_widget": "Remove connected components from a label image based on size threshold.",
+        "size": "Maximum size of connected components (in pixels) to remove.",
+    },
+    "interpolate": {
+        "_widget": "Interpolate gaps in located intensity coordinates.",
+    },
+    "zero_out": {
+        "_widget": "Zero out (mask) areas above or below the labeled substratum.",
+        "direction": "Choose whether to zero areas above or below the substratum labels.",
+    },
+    "replace_reflection": {
+        "_widget": "Replace lateral reflection artifacts using nearby image context.",
+        "offset": "Axial offset from reflection [px] to use for replacement values.",
+        "padding": "Padding (thickness) used when replacing reflection regions.",
+    },
+    "untilt_widget": {
+        "_widget": "Axially move substratum to bottom of the image.",
+    },
+    "export_to_tiff": {
+        "_widget": "Export the given layer to a TIFF (.tiff) file in the source directory.",
+        "image": "Layer to export.",
+    },
+    "export_to_nifti": {
+        "_widget": "Export the given layer to a NIfTI (.nii.gz) file in the source directory.",
+    },
+    "h_map": {
+        "_widget": "Create a height map (preview or save) from a binary label image.",
+        "max_h": "Maximum height (µm) used for scaling the height map.",
+        "preview": "When checked, only preview plot is shown instead of saving to file.",
+    },
+    "bv_map": {
+        "_widget": "Create a biovolume map from a binary label image.",
+        "max_h": "Maximum height (µm) used for scaling the height map.",
+        "preview": "When checked, only preview plot is shown instead of saving to file.",
+    },
+    "save_metrics": {
+        "_widget": "Calculate biofilm metrics based on a binary label image and save to CSV (.csv).",
+    },
+}
 # endregion IMPORTS
 
 
 # region WIDGETS
+"""
 @magic_factory(call_button="Convert to 8bit")
 def convert_to_8bit_widget(image: Image) -> LayerDataTuple:
     data = fn.convert_to_8bit(asarray(image.data))
@@ -74,6 +140,7 @@ def convert_to_8bit_widget(image: Image) -> LayerDataTuple:
         p.refresh()
 
     return cast(LayerDataTuple, (data, napari_metadata, "image"))
+"""
 
 
 @magic_factory(
@@ -82,7 +149,7 @@ def convert_to_8bit_widget(image: Image) -> LayerDataTuple:
         "min": 1,
         "step": 2,
         "max": 13,
-        "tooltip": "Size of the neighborhood (must be odd). A larger size means more aggressive filtering.",
+        "tooltip": TOOLTIPS["median"]["size"],
     },
 )
 def median_filter_widget(image: Image, size: int = 1) -> LayerDataTuple:
@@ -125,7 +192,10 @@ def median_filter_widget(image: Image, size: int = 1) -> LayerDataTuple:
     return cast(LayerDataTuple, (data, napari_metadata, "image"))
 
 
-@magic_factory(call_button="Apply Gaussian Filter", sigma={"max": 20.0})
+@magic_factory(
+    call_button="Apply Gaussian Filter",
+    sigma={"max": 20.0, "tooltip": TOOLTIPS["gaussian"]["sigma"]},
+)
 def gaussian_filter_widget(image: Image, sigma: float = 0.0) -> LayerDataTuple:
     data = fn.gaussian_filter(asarray(image.data), sigma)
 
@@ -578,7 +648,12 @@ class DefineRoiWidget(QWidget):
 
 
 @magic_factory(
-    call_button="Remove Small objects", size={"label": "Object Size", "min": 0}
+    call_button="Remove Small objects",
+    size={
+        "label": "Object Size",
+        "min": 0,
+        "tooltip": TOOLTIPS["remove_outliers"]["size"],
+    },
 )
 def remove_outliers_widget(image: Labels, size: int = 0) -> LayerDataTuple:
     data = fn.remove_outliers(asarray(image.data), size)
@@ -648,7 +723,11 @@ def interpolate_gaps_widget(image: Labels) -> LayerDataTuple:
 
 @magic_factory(
     call_button="Zero Out Area",
-    direction={"choices": ["above", "below"], "label": "Direction"},
+    direction={
+        "choices": ["above", "below"],
+        "label": "Direction",
+        "tooltip": TOOLTIPS["zero_out"]["direction"],
+    },
 )
 def zero_out_widget(
     image: Image, labels: Labels, direction: Literal["above", "below"] = "below"
@@ -687,8 +766,13 @@ def zero_out_widget(
 
 @magic_factory(
     call_button="Replace Reflection",
-    offset={"label": "Axial Offset", "min": -500, "max": 500},
-    padding={"label": "Padding"},
+    offset={
+        "label": "Axial Offset",
+        "min": -500,
+        "max": 500,
+        "tooltip": TOOLTIPS["replace_reflection"]["offset"],
+    },
+    padding={"label": "Padding", "tooltip": TOOLTIPS["replace_reflection"]["padding"]},
 )
 def replace_reflection_widget(
     image: Image, reflection: Labels, offset: int = 5, padding: int = 2
@@ -768,47 +852,43 @@ def untilt_widget(image: Layer, coords: Labels) -> LayerDataTuple:
 
 @magic_factory(
     call_button="Enhance Contrast",
-    header={
-        "widget_type": "Label",
-        "label": "<b>Contrast Enhancement</b><br>"
-        "<small>"
-        "Improve image visibility using different contrast adjustment methods:<br><br>"
-        "<b>Gamma:</b> Adjusts brightness non-linearly. Useful for overall light/dark correction.<br>"
-        "<b>Clipping:</b> Stretches contrast by cutting off extreme low/high intensities.<br>"
-        "<b>CLAHE:</b> Enhances local contrast while limiting noise amplification."
-        "</small>",
+    method={"label": "Method", "tooltip": TOOLTIPS["contrast"]["method"]},
+    gamma={
+        "label": "Gamma",
+        "min": 0.1,
+        "step": 0.1,
+        "tooltip": TOOLTIPS["contrast"]["gamma"],
     },
-    method={"label": "Method"},
-    gamma={"label": "Gamma", "min": 0.1, "step": 0.1},
     clip_low_percentile={
         "label": "Clip Low [%]",
         "min": 0.0,
         "max": 100.0,
         "step": 0.1,
+        "tooltip": TOOLTIPS["contrast"]["clip_low_percentile"],
     },
     clip_high_percentile={
         "label": "Clip High [%]",
         "min": 0.0,
         "max": 100.0,
         "step": 0.1,
+        "tooltip": TOOLTIPS["contrast"]["clip_high_percentile"],
     },
     clahe_clip={
         "label": "CLAHE Clip",
         "min": 0.1,
         "max": 10.0,
         "step": 0.1,
-        "tooltip": "Controls how strongly contrast is enhanced. Lower values yield small but stable contrast increase. Higher values increase contrast more but may amplify noise.",
+        "tooltip": TOOLTIPS["contrast"]["clahe_clip"],
     },
     clahe_tile={
         "label": "CLAHE Tile Size",
         "min": 1,
         "max": 64,
         "step": 1,
-        "tooltip": "Sets the size of local regions used for contrast enhancement. Smaller tiles reveal more detail but can introduce artifacts. Larger tiles behave closer to global contrast enhancement.",
+        "tooltip": TOOLTIPS["contrast"]["clahe_tile"],
     },
 )
 def enhance_contrast_widget(
-    header,
     image: Image,
     method: Literal["gamma", "clip", "clahe"] = "gamma",
     gamma: float = 1.0,
@@ -1097,9 +1177,7 @@ class ThresholdWidget(QWidget):
             p.refresh()
 
 
-@magic_factory(
-    call_button="Export to TIFF",
-)
+@magic_factory(call_button="Export to TIFF")
 def export_to_tiff_widget(image: Layer) -> None:
     source_dir = Path(image.metadata["source_dir"])
     savepath = source_dir / f"{image.name}.tiff"
@@ -1126,9 +1204,7 @@ def export_to_tiff_widget(image: Layer) -> None:
         p.refresh()
 
 
-@magic_factory(
-    call_button="Export to NIfTI",
-)
+@magic_factory(call_button="Export to NIfTI")
 def export_to_nifti_widget(image: Layer) -> None:
     source_dir = Path(image.metadata["source_dir"])
     savepath = source_dir / f"{image.name}.nii.gz"
@@ -1155,8 +1231,12 @@ def export_to_nifti_widget(image: Layer) -> None:
 
 @magic_factory(
     call_button="Create Height Map",
-    max_h={"label": "Max Height [µm]", "max": 10000},
-    preview={"label": "Preview (uncheck to save to file)"},
+    max_h={
+        "label": "Max Height [µm]",
+        "max": 10000,
+        "tooltip": TOOLTIPS["h_map"]["max_h"],
+    },
+    preview={"label": "Preview", "tooltip": TOOLTIPS["h_map"]["preview"]},
 )
 def height_map_widget(
     binary: Labels,
@@ -1211,9 +1291,9 @@ def height_map_widget(
     max_h={
         "label": "Max Height [µm]",
         "max": 10000,
-        "tooltip": "Will be converted to Volume (µm³) with spacing info.",
+        "tooltip": TOOLTIPS["bv_map"]["max_h"],
     },
-    preview={"label": "Preview (uncheck to save to file)"},
+    preview={"label": "Preview", "tooltip": TOOLTIPS["bv_map"]["preview"]},
 )
 def bv_map_widget(
     binary: Labels,
@@ -1263,9 +1343,7 @@ def bv_map_widget(
             p.refresh()
 
 
-@magic_factory(
-    call_button="Save Metrics to CSV",
-)
+@magic_factory(call_button="Save Metrics to CSV")
 def save_metrics_widget(
     binary: Labels,
     substratum: Labels | None = None,

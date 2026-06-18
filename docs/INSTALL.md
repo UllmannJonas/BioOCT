@@ -1,96 +1,40 @@
-# Developer Installation (Windows)
+# Installation (Windows)
 
-This guide explains how to set up a full development environment using [`uv`](https://github.com/astral-sh/uv) and [git](https://git-scm.com/), setting you up to contribute to the project.
+We provide a setup file for users with no python environment experience.
+With that, no prior knowledge is needed, just two easy steps will get you started.
+If you prefer to have more control over the setup, refer to the **Python environment installation** below.
 
-*Refer to the **User Installation Guide** below if you simply want to use the tools provided.*
+## Step 1: Download the starter file
 
-## Requirements
+Download from Github: **[Start_BioOCT.bat](https://github.com/UllmannJonas/BioOCT/blob/main/Start_BioOCT.bat)**
 
-- **[git](https://git-scm.com/)**
-  Install the latest version for Windows.
-- **[Python](https://www.python.org/downloads/windows/)**
-  Install any Version **>=3.11**
-- **[uv](https://github.com/astral-sh/uv)**
-  Go to their github and choose one version-tag to download, or use this
-  PowerShell command to install uv from tag 0.7.21: `powershell -ExecutionPolicy Bypass -c "irm https://github.com/astral-sh/uv/releases/download/0.7.21/uv-installer.ps1 | iex"`
-- PowerShell / cmd terminal
+Save it somewhere you'll find again, e.g. your Desktop.
 
-## Steps
+## Step 2: Excecute
 
-1. **Open Terminal and Navigate to Target Location**
-  Start > Search > "PowerShell" or "cmd" > Launch
+Double-click `Start_BioOCT.bat`. A console window will open and set everything up automatically. This can take a few minutes the first time. Once it's done, napari including the BioOCT plugin opens by itself.
 
-  Navigate to your desired folder to set up the workspace using `cd Your\desired\path`
-    (recommended path: `C:\Users\<yourusername>`. A folder "oct_analysis" will be created there)
+After initial setup, executing the same file will start up much faster since setup steps only run once.
 
-2. **Clone the Repository**
-  Note: To use "git clone" you need access to the repository via SSH or a Token.
-
-    Refer to the documentation at [docs.gitlab.kit.edu/getting_started](https://docs.gitlab.kit.edu/en/getting_started/).
-  command: `git clone "https://gitlab.kit.edu/kit/ebi/dvgw/watertechnology/oct-analysis.git"`
-
-  Navigate into the repository with `cd oct_analysis`
-
-3. **Setup the Virtual Environment**
-  Command to create: `uv venv`
-
-  Command to activate: `.venv\Scripts\activate`
-
-  (Command to deactivate): `deactivate`
-
-  Install project dependencies: `uv sync` (in case of permission error: repeat "uv sync")
-
-**You are ready to work on the project now. For guidance on best-practices for collaboratorive developement, see >[Contribute](CONTRIBUTE.md)<**
+You may inspect the file's content by renaming the suffix to ".txt" and opening it via any text editor.
 
 ---
 
-# User Installation (Windows)
+## Python environment installation
 
-## Requirements
+BioOCT is available on pypi and can be installed in your preferred environment via
+```
+pip install bio-oct
+```
+or other packet managers such as `uv`.
 
-- **[Python](https://www.python.org/downloads/windows/)**
-  Install any Version **>=3.12**
-- **[uv](https://github.com/astral-sh/uv)**
-  Open PowerShell (Start > Search "Powershell" > Launch)
+Note that `napari` and the QT backend `pyqt6` are not included in `bio-oct` and need to be installed additionally. Further, the `napari-nifti` plugin is recommended for reading NIfTI-files in napari.
 
-  PowerShell command to install uv: (`powershell -ExecutionPolicy Bypass -c "irm https://github.com/astral-sh/uv/releases/download/0.7.21/uv-installer.ps1 | iex"`)
+---
 
-  Follow instructions from uv after installation if any appear
+## Troubleshooting
 
+- **Error message mentions "os error 5" or "failed to rename file":** this is a [known issue](https://github.com/astral-sh/uv/issues/1491) caused by antivirus software interfering with the setup process. Try temporarily disabling real-time protection and run the file again
+- **Any other error:** copy the error message from the console and open an issue [here](https://github.com/UllmannJonas/BioOCT/issues), describing what happened.
 
-## Steps
-
-1. **Download the repository as a ZIP-File**
-  Navigate to the [oct-analysis repository](https://gitlab.kit.edu/kit/ebi/dvgw/watertechnology/oct-analysis) in your browser
-
-  Click on the button `<> Code` and choose `Download ZIP` from the dropdown menu
-
-  Store it in your desired location.
-
-  (recommended path: `C:\Users\<yourusername>`.)
-
-  Unpack the ZIP-File.
-
-
-2. **Open the directory with PowerShell**
-  Start > Search "Powershell" > Launch
-
-  Navigate into the directory with `cd C:\Path\to\folder\oct_analysis`
-
-
-3. **Setup the Virtual Environment**
-  Inside your PowerShell session, use the following commands:
-
-  Command to create environment: `uv venv`
-
-  Command to activate the environment: `.venv\Scripts\activate`
-
-  Install project dependencies: `uv sync` (in case of permission error: repeat "uv sync")
-
-  Install additional required dependencies:
-
-  - `uv pip install pyqt6 napari-nifti`
-  - `uv pip install \\129.13.178.141\oct\03_Toolbox\bio-oct\bio_oct-0.2.0-py3-none-any.whl` (needs access to OCT-Server)
-
-
-**You are ready to use the projects tools now. For instructions on how to work with napari and the plugin, see >[User Guide](USAGE.md)<**
+For guidance on using the plugin once it's running, see the [User Guide](USAGE.md).
