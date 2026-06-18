@@ -1,7 +1,6 @@
 stages:
   - lint
-  - test
-  - docs
+  # - test
   - build
   - deploy
 
@@ -22,16 +21,14 @@ default:
 lint:
   stage: lint
   script:
-    - uv run ruff check --fix .
-    #! only possible with bio-oct on pypi
-    # - uv run pyright
+    - uv run ruff check .
+    - uv run pyright
   allow_failure: false
 
-#! only possible with bio-oct on pypi
-# # ----------------------------------------
-# # TESTING (matrix über Python-Versionen)
-# # when: every push
-# # ----------------------------------------
+# ----------------------------------------
+# TESTING (matrix über Python-Versionen)
+# when: every push
+# ----------------------------------------
 # test:
 #   stage: test
 #   parallel:
@@ -40,34 +37,33 @@ lint:
 #       - PYTHON_VERSION: "3.11"
 #       - PYTHON_VERSION: "3.12"
 #       - PYTHON_VERSION: "3.13"
-#       # - PYTHON_VERSION: "3.14"
+#       - PYTHON_VERSION: "3.14"
 #   image: python:${PYTHON_VERSION}
 #   script:
 #     - uv run pytest -q
 
-#! later build and deploy to pypi and napari-hub
-# # ----------------------------------------
-# # BUILD PACKAGE (sdist + wheel)
-# # when: only on tag push
-# # ----------------------------------------
-# build:
-#   stage: build
-#   rules:
-#     - if: '$CI_COMMIT_TAG'
-#   script:
-#     - uv build --no-sources
-#   artifacts:
-#     paths:
-#       - dist/
-#     expire_in: 1 week
+# ----------------------------------------
+# BUILD PACKAGE (sdist + wheel)
+# when: only on tag push
+# ----------------------------------------
+build:
+  stage: build
+  rules:
+    - if: '$CI_COMMIT_TAG'
+  script:
+    - uv build --no-sources
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
 
-# # ----------------------------------------
-# # DEPLOY TO PYPI (ENABLED WHEN READY)
-# # when: only on tag push
-# # ----------------------------------------
-# #deploy:
-# #  stage: deploy
-# #  rules:
-# #    - if: '$CI_COMMIT_TAG'
-# #  script:
-# #    - uv publish -u __token__ -p $PYPI_TOKEN
+# ----------------------------------------
+# DEPLOY TO PYPI
+# when: only on tag push
+# ----------------------------------------
+deploy:
+  stage: deploy
+  rules:
+    - if: '$CI_COMMIT_TAG'
+  script:
+    - uv publish -u __token__ -p $PYPI_TOKEN
