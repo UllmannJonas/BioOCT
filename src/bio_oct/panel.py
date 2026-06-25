@@ -1,5 +1,6 @@
 import yaml
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from qtpy.QtWidgets import (
     QWidget,
@@ -15,8 +16,10 @@ from qtpy.QtWidgets import (
     QGroupBox,
 )
 from qtpy.QtGui import QFont
-from napari.viewer import Viewer
 from .recorder import recorder
+
+if TYPE_CHECKING:
+    import napari.viewer
 
 
 def get_panel():
@@ -24,7 +27,7 @@ def get_panel():
 
 
 class PipelineManager(QWidget):
-    def __init__(self, viewer: Viewer, parent=None):
+    def __init__(self, viewer: "napari.viewer.Viewer", parent=None):
         super().__init__(parent)
         self.viewer = viewer
         global panel

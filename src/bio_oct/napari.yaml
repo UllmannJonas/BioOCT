@@ -2,16 +2,29 @@
 
 name: bio_oct
 display_name: BioOCT
+visibility: public
+categories: ["Annotation", "Image Processing", "IO", "Segmentation"]
 
 contributions:
-  # --- Contributions Definition ---
+  # define comands
   commands:
   # Reader
   - id: bio_oct.oct_reader
     title: Read ".oct" files
     python_name: bio_oct._reader:get_reader_fn
 
-  ## Widgets
+  #*================ SAMPLE DATA
+  - id: bio_oct.sample_membrane
+    title: Membrane with Spacer
+    python_name: bio_oct._sample_data:load_sample_membrane_w_spacer
+  - id: bio_oct.sample_electrode_rough
+    title: Rough Electrode
+    python_name: bio_oct._sample_data:load_sample_rough_electrode
+  - id: bio_oct.sample_electrode_smooth
+    title: Smooth Electrode with Shadowing
+    python_name: bio_oct._sample_data:load_sample_smooth_electrode_shadowed
+
+  #*==================== WIDGET ITEMS
   # Recording Panel
   - id: bio_oct.pipeline_manager
     title: Pipeline Manager
@@ -28,30 +41,26 @@ contributions:
   - id: bio_oct.sobel_filter
     title: Sobel Filter
     python_name: bio_oct.widgets:sobel_filter_widget
-  # Locate Intensity Coordinates
-  - id: bio_oct.locate_intensity
-    title: Locate Intensity
-    python_name: bio_oct.widgets:LocateIntensityWidget
+  # Locate Surface Coordinates
+  - id: bio_oct.locate_surface
+    title: Locate Surface
+    python_name: bio_oct.widgets:LocateSurfaceWidget
   # Define ROI
   - id: bio_oct.define_roi
     title: Define ROI
     python_name: bio_oct.widgets:DefineRoiWidget
-  # # 8bit Converter
-  # - id: bio_oct.convert_to_8bit
-  #   title: Convert to 8bit
-  #   python_name: bio_oct.widgets:convert_to_8bit_widget
   # Remove Small Objects
-  - id: bio_oct.remove_outliers
+  - id: bio_oct.remove_small_objects
     title: Remove Small Objects
-    python_name: bio_oct.widgets:remove_outliers_widget
+    python_name: bio_oct.widgets:remove_small_objects_widget
   # Interpolate Gaps
   - id: bio_oct.interpolate_gaps
     title: Interpolate Gaps
     python_name: bio_oct.widgets:interpolate_gaps_widget
   # Zero Out Areas
-  - id: bio_oct.zero_out
+  - id: bio_oct.zero_out_area
     title: Zero Out Area
-    python_name: bio_oct.widgets:zero_out_widget
+    python_name: bio_oct.widgets:zero_out_area_widget
   # Replace Reflection Lines
   - id: bio_oct.replace_reflection
     title: Replace Reflection
@@ -79,16 +88,17 @@ contributions:
   # Height Map creation
   - id: bio_oct.height_map
     title: Create Height Map
-    python_name: bio_oct.widgets:height_map_widget
+    python_name: bio_oct.widgets:create_height_map_widget
   # Biovolume Map creation
   - id: bio_oct.bv_map
     title: Create BioVol Map
-    python_name: bio_oct.widgets:bv_map_widget
-  - id: bio_oct.save_metrics
-    title: Save Metrics
-    python_name: bio_oct.widgets:save_metrics_widget
+    python_name: bio_oct.widgets:create_bv_map_widget
+  # Calculate and save metrics
+  - id: bio_oct.calculate_metrics
+    title: Calculate Metrics
+    python_name: bio_oct.widgets:calculate_metrics_widget
 
-  #*======================================
+  #*============== DEV WIDGET ITEMS
   # dev widgets
   - id: bio_oct.preview_height_map
     title: "dev: preview_height_map"
@@ -111,36 +121,42 @@ contributions:
     title: Plot Object Sizes
     python_name: bio_oct.menus:plot_connected_components
 
-
-  # --- Implementation/Registration ---
-  # Reader hook
+  # register commands
   readers:
   - command: bio_oct.oct_reader
     accepts_directories: true
     filename_patterns:
     - '*.oct'
 
-  # Widget hooks
+  sample_data:
+  - command: bio_oct.sample_membrane
+    key: membrane_w_spacer
+    display_name: Membrane with Spacer
+  - command: bio_oct.sample_electrode_rough
+    key: electrode_rough
+    display_name: Rough Electrode
+  - command: bio_oct.sample_electrode_smooth
+    key: electrode_smooth
+    display_name: Smooth Electrode with Shadowing
+
   widgets:
   - command: bio_oct.pipeline_manager
     display_name: Pipeline Manager
-  # - command: bio_oct.convert_to_8bit
-  #   display_name: Convert to 8bit
   - command: bio_oct.median_filter
     display_name: "Filter: Median"
   - command: bio_oct.gauss_filter
     display_name: "Filter: Gauss"
   - command: bio_oct.sobel_filter
     display_name: "Filter: Sobel"
-  - command: bio_oct.locate_intensity
-    display_name: Locate Intensity
+  - command: bio_oct.locate_surface
+    display_name: Locate Surface
   - command: bio_oct.define_roi
     display_name: Define ROI
-  - command: bio_oct.remove_outliers
+  - command: bio_oct.remove_small_objects
     display_name: Remove Small Objects
   - command: bio_oct.interpolate_gaps
     display_name: Interpolate Gaps
-  - command: bio_oct.zero_out
+  - command: bio_oct.zero_out_area
     display_name: Zero Out Area
   - command: bio_oct.replace_reflection
     display_name: Replace Reflection
@@ -158,10 +174,9 @@ contributions:
     display_name: Create Height Map
   - command: bio_oct.bv_map
     display_name: Create BioVol Map
-  - command: bio_oct.save_metrics
-    display_name: Save Metrics
+  - command: bio_oct.calculate_metrics
+    display_name: Calculate Metrics
 
-  #*============================================
   # dev widgets
   - command: bio_oct.preview_height_map
     display_name: "dev: preview_height_map"
@@ -172,7 +187,6 @@ contributions:
   - command: bio_oct.expand_coords
     display_name: "dev: expand_coords"
 
-  #*===================== MENUS
   menus:
     napari/layers/visualize:
       - command: bio_oct.scale1000

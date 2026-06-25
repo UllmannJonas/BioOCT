@@ -1,7 +1,7 @@
 from pathlib import Path
 import inspect
-from napari.viewer import Viewer
-from napari.layers import Layer
+from typing import TYPE_CHECKING
+
 from .registry import REGISTRY
 from .recorder import PipelineRecorder
 from .functions import _is_binary
@@ -14,13 +14,19 @@ from .constants import (
     LAYER_NAME_PLACEHOLDER,
 )
 
+if TYPE_CHECKING:
+    import napari.viewer
+    import napari.layers
 
-def _substitute(name: str, base_layer: str) -> str:
+
+def _substitute(name: str | None, base_layer: str) -> str | None:
     """Replace $base placeholder with actual layer name."""
+    if name is None:
+        return None
     return name.replace(BASE_LAYER_PLACEHOLDER, base_layer)
 
 
-def _resolve_savepath(template: str, layer: Layer) -> Path:
+def _resolve_savepath(template: str, layer: "napari.layers.Layer") -> Path:
     meta = layer.metadata if hasattr(layer, "metadata") else {}
     source_dir = str(meta.get("source_dir", Path.home()))
     layer_name = layer.name if hasattr(layer, "name") else "unknown_layer"
@@ -32,7 +38,7 @@ def _resolve_savepath(template: str, layer: Layer) -> Path:
 
 def replay_pipeline(
     recorder: PipelineRecorder,
-    viewer: Viewer,
+    viewer: "napari.viewer.Viewer",
     base_layer_name: str | None = None,
 ) -> None:
     if base_layer_name is None:
@@ -81,6 +87,8 @@ def replay_pipeline(
             result = func(**inputs, **step["params"], **extra)
 
         output_name = step["output_layer"]
+        if base_layer_name is not None:
+            output_name = _substitute(output_name, base_layer_name)
 
         if result is None and output_name is None:
             # fn used for side-effect (e.g. saving a file), return=None -> skip layer creation
@@ -93,12 +101,10 @@ def replay_pipeline(
             QApplication.processEvents()
             continue
 
-        if base_layer_name is not None:
-            output_name = _substitute(output_name, base_layer_name)
-
         primary_input_name = _substitute(
             next(iter(step["input_layers"].values())), base_layer_name
         )
+        assert primary_input_name is not None
         primary_layer = viewer.layers[primary_input_name]
 
         affine = (
@@ -148,7 +154,7 @@ def replay_pipeline(
 
 
 def replay_on_batch(
-    recorder: PipelineRecorder, viewer: Viewer, source_folder: Path
+    recorder: PipelineRecorder, viewer: "napari.viewer.Viewer", source_folder: Path
 ) -> None:
     print()
     print("#" * 20)

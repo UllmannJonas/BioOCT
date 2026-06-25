@@ -64,7 +64,7 @@ class PipelineRecorder:
         self._base_name = None
 
     def save(self, yaml_path: str | Path) -> None:
-        with open(yaml_path, "w") as f:
+        with open(yaml_path, "w", encoding="utf-8") as f:
             yaml.dump(
                 {"created with": self._base_name, "pipeline": self.steps},
                 f,
@@ -73,7 +73,7 @@ class PipelineRecorder:
             )
 
     def load(self, yaml_path: str | Path) -> None:
-        with open(yaml_path) as f:
+        with open(yaml_path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
         self.steps = data["pipeline"]
         self._base_name = None

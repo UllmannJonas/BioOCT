@@ -1,0 +1,56 @@
+created with: rough_electrode
+pipeline:
+- step: 1
+  function: median_filter
+  input_layers:
+    image: $base
+  output_layer: $base_median
+  params:
+    kernel_size: 5
+- step: 2
+  function: locate_surface
+  input_layers:
+    image: $base_median
+  output_layer: $base_median_surface-coords
+  params:
+    upper_bound: 430
+    lower_bound: 517
+    axial_offset: -2
+- step: 3
+  function: zero_out_area
+  input_layers:
+    image: $base
+    surface_coords: $base_median_surface-coords
+  output_layer: $base_zeroed
+  params:
+    direction: below
+- step: 4
+  function: enhance_contrast
+  input_layers:
+    image: $base_zeroed
+  output_layer: $base_zeroed_enhanced
+  params:
+    method: clip
+    clip_low_pct: 30.0
+    clip_high_pct: 99.89999999999995
+- step: 5
+  function: gaussian_filter
+  input_layers:
+    image: $base_zeroed_enhanced
+  output_layer: $base_zeroed_enhanced_gauss
+  params:
+    sigma: 1.0
+- step: 6
+  function: threshold
+  input_layers:
+    image: $base_zeroed_enhanced_gauss
+  output_layer: $base_zeroed_enhanced_gauss_binary
+  params:
+    method: li
+- step: 7
+  function: remove_small_objects
+  input_layers:
+    labels: $base_zeroed_enhanced_gauss_binary
+  output_layer: $base_zeroed_enhanced_gauss_binary_cleaned
+  params:
+    max_object_size: 25

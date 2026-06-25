@@ -50,7 +50,7 @@ packages = ["src/bio_oct"]
 include = ["src/bio_oct/napari.yaml"]
 
 [tool.pyright]
-exclude = ["**/node_modules", "**/__pycache__", "**/.venv"]
+exclude = ["**/node_modules", "**/__pycache__", "**/.*", "**/.venv"]
 pythonVersion = "3.12"
 venvPath = "."
 venv = ".venv"
