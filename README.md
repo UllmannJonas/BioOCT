@@ -36,6 +36,20 @@ The main use cases are:
   Best practice workflow for contributing to the project.
 
 
+## Sample Data & Example Pipelines
+
+Three example datasets covering structurally distinct image classes are available via
+```
+File > Open Sample > BioOCT
+```
+directly in napari, or on **[Zenodo (DOI: doi.org/10.5281/zenodo.20758173)](https://doi.org/10.5281/zenodo.20758173)**:
+
+- **Membrane with Spacer**: membrane substratum with embedded feed spacer fixtures
+- **Rough Electrode**: electrode substratum with rough surface topology
+- **Smooth Electrode with Shadowing**: planar electrode substratum with signal shadowing caused by thick biofilm growth
+
+Matching pipeline YAML files for each image class are also available in the above Zenodo dataset, or via the repository in [`docs/examples/`](docs/examples/), demonstrating a complete processing workflow from raw `.oct` to segmentation and metrics export. Load them via the Pipeline Manager widget (`Load` → `Replay Single`).
+
 ---
 
 ## License
