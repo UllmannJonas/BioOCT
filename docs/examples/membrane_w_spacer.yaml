@@ -1,0 +1,146 @@
+created with: membrane_w_spacer
+pipeline:
+- step: 1
+  function: define_roi
+  input_layers:
+    image: $base
+  output_layer: $base_roi
+  params:
+    roi_corner_points:
+    - - 260
+      - 80
+    - - 90
+      - 330
+    - - 280
+      - 500
+    - - 455
+      - 320
+- step: 2
+  function: locate_surface
+  input_layers:
+    image: $base_roi
+  output_layer: $base_roi_surface-coords
+  params:
+    upper_bound: 250
+    lower_bound: 251
+    axial_offset: 0
+- step: 3
+  function: zero_out_area
+  input_layers:
+    image: $base_roi
+    surface_coords: $base_roi_surface-coords
+  output_layer: $base_roi_zeroed
+  params:
+    direction: above
+- step: 4
+  function: median_filter
+  input_layers:
+    image: $base_roi_zeroed
+  output_layer: $base_roi_zeroed_median
+  params:
+    kernel_size: 7
+- step: 5
+  function: sobel_filter
+  input_layers:
+    image: $base_roi_zeroed_median
+  output_layer: $base_roi_zeroed_median_sobel
+  params: {}
+- step: 6
+  function: locate_surface
+  input_layers:
+    image: $base_roi_zeroed_median_sobel
+  output_layer: $base_roi_zeroed_median_sobel_surface-coords
+  params:
+    upper_bound: 365
+    lower_bound: 385
+    axial_offset: -20
+- step: 7
+  function: remove_small_objects
+  input_layers:
+    labels: $base_roi_zeroed_median_sobel_surface-coords
+  output_layer: $base_roi_zeroed_median_sobel_surface-coords_cleaned
+  params:
+    max_object_size: 30
+- step: 8
+  function: interpolate_gaps
+  input_layers:
+    surface: $base_roi_zeroed_median_sobel_surface-coords_cleaned
+  output_layer: $base_roi_zeroed_median_sobel_surface-coords_cleaned_interpolated
+  params: {}
+- step: 9
+  function: zero_out_area
+  input_layers:
+    image: $base_roi_zeroed
+    surface_coords: $base_roi_zeroed_median_sobel_surface-coords_cleaned_interpolated
+  output_layer: $base_roi_zeroed
+  params:
+    direction: below
+- step: 10
+  function: median_filter
+  input_layers:
+    image: $base_roi_zeroed
+  output_layer: $base_roi_zeroed_median
+  params:
+    kernel_size: 3
+- step: 11
+  function: enhance_contrast
+  input_layers:
+    image: $base_roi_zeroed_median
+  output_layer: $base_roi_zeroed_median_enhanced
+  params:
+    method: clip
+    clip_low_pct: 2.0
+    clip_high_pct: 99.0
+- step: 12
+  function: threshold
+  input_layers:
+    image: $base_roi_zeroed_median_enhanced
+  output_layer: $base_roi_zeroed_median_enhanced_binary
+  params:
+    method: yen
+- step: 13
+  function: remove_small_objects
+  input_layers:
+    labels: $base_roi_zeroed_median_enhanced_binary
+  output_layer: $base_roi_zeroed_median_enhanced_binary_cleaned
+  params:
+    max_object_size: 1
+- step: 14
+  function: create_bv_map
+  input_layers:
+    segmentation: $base_roi_zeroed_median_enhanced_binary_cleaned
+    substratum: $base_roi_zeroed_median_sobel_surface-coords_cleaned_interpolated
+  output_layer: null
+  params:
+    spacing:
+    - 0.008014
+    - 0.004171
+    - 0.008007
+    max_height_um: 100
+    colorbar: true
+    scalebar: true
+    axes: true
+    path: $source_dir/$layer_name_BVmap.tiff
+- step: 15
+  function: calculate_metrics
+  input_layers:
+    segmentation: $base_roi_zeroed_median_enhanced_binary_cleaned
+    substratum: $base_roi_zeroed_median_sobel_surface-coords_cleaned_interpolated
+  output_layer: null
+  params:
+    spacing:
+    - 0.008014
+    - 0.004171
+    - 0.008007
+    path: $source_dir/batch_metrics.csv
+- step: 16
+  function: export_to_tiff
+  input_layers:
+    image: $base_roi_zeroed_median_enhanced_binary_cleaned
+  output_layer: null
+  params:
+    spacing:
+    - 0.008014
+    - 0.004171
+    - 0.008007
+    path: $source_dir/$layer_name.tiff

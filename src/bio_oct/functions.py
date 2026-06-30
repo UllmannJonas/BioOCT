@@ -18,9 +18,10 @@ Pipeline Contract:
 
 # region IMPORTS
 # python native imports
-from typing import Literal, Callable
+from typing import Literal
 from pathlib import Path
 import tifffile as tiff
+from math import isclose
 
 # third party imports
 import cv2
@@ -32,49 +33,43 @@ import numpy as np
 import pandas as pd
 from scipy.interpolate import griddata
 from skimage import morphology
-from skimage.filters.thresholding import (
-    threshold_otsu,
-    threshold_yen,
-    threshold_li,
-    threshold_mean,
-    threshold_isodata,
-    threshold_triangle,
-)
 
 # local imports
 from .registry import register
-from .constants import Fn
+from .constants import Fn, THRESHOLD_METHODS
 
-THRESHOLD_METHODS: dict[str, Callable] = {
-    "otsu": threshold_otsu,
-    "yen": threshold_yen,
-    "li": threshold_li,
-    "mean": threshold_mean,
-    "isodata": threshold_isodata,
-    "triangle": threshold_triangle,
-    "manual": lambda x: None,  # placeholder, handled separately
-}
 # endregion IMPORTS
 
 
 # -----------------------------------------------------------------------
 # --- Processing functions --------------------------------------------------
 # region FUNCTIONS
-@register(Fn.CONVERT_TO_8BIT)
-def convert_to_8bit(image: np.ndarray) -> np.ndarray:
-    image = (image - image.min()) / (image.max() - image.min())
+@register("define_roi")
+def define_roi(
+    image: np.ndarray,
+    roi_corner_points: list[tuple[int, int]] | np.ndarray,
+) -> np.ndarray:
+    """Define a 3D ROI from four corners in the top-down (xy) view.
 
-    converted = (image * 255).astype(np.uint8)
-    return converted
+    Points are (b_scan, lateral) pairs in voxel indices, defining a
+    quadrilateral that is extruded through all axial depths.
+    Voxels inside the ROI keep their original values; all outside are set to zero.
+    """
+
+    mask3d = _roi_to_volume(roi_corner_points, shape=image.shape)
+
+    roi_image = np.where(mask3d, image, 0).astype(image.dtype)
+
+    return roi_image
 
 
 @register(Fn.MEDIAN_FILTER)
-def median_filter(image: np.ndarray, size: int = 1) -> np.ndarray:
+def median_filter(image: np.ndarray, kernel_size: int = 1) -> np.ndarray:
     _is_uint8(image)
 
     filtered = np.empty_like(image)
     for b_scan in range(image.shape[0]):
-        filtered[b_scan, :, :] = cv2.medianBlur(image[b_scan, :, :], size)
+        filtered[b_scan, :, :] = cv2.medianBlur(image[b_scan, :, :], kernel_size)
     return filtered
 
 
@@ -101,94 +96,135 @@ def sobel_filter(image: np.ndarray) -> np.ndarray:
         )
         magnitude[b_scan, :, :] = np.abs(sobel_axial)
 
-    magnitude = convert_to_8bit(magnitude)
+    magnitude = _convert_to_8bit(magnitude)
     return magnitude
 
 
-@register("locate_intensity")
-def locate_intensity(
-    image: np.ndarray, ymin: int, ymax: int, y_offset: int = 0, label_id: int = 1
+@register("locate_surface")
+def locate_surface(
+    image: np.ndarray,
+    upper_bound: int,
+    lower_bound: int,
+    axial_offset: int = 0,
+    color_id: int = 1,
 ) -> np.ndarray:
+    ymin = upper_bound
+    ymax = lower_bound
+
     if ymin >= ymax:
         raise ValueError(f"ymin must be less than ymax.\nymin={ymin}\nymax={ymax}")
     if ymin < 0 or ymax > image.shape[1]:
         raise ValueError("Index out of bounds.")
 
-    y_coords = np.argmax(image[:, ymin:ymax, :], axis=1)
-    y_coords = y_coords + ymin + y_offset
+    search = image[:, ymin:ymax, :]
+    valid = np.any(image > 0, axis=1)  # Exclude A-scans with only zeros (roi masked)
 
-    """
-    things for testing:
-    Smoothen ycoords:
-    # 1. argmax → Höhenkarte
-    y_coords = locate_substratum(...)
+    y_coords = np.argmax(search, axis=1)
+    y_coords = y_coords + ymin + axial_offset
 
-    # 2. Grobe Ausreißer entfernen
-    y_med = median_filter(y_coords, size=(3, 5))
-
-    # 3. Sanfte physikalische Glättung
-    y_smooth = gaussian_filter(y_med.astype(float), sigma=(1, 2))
-    y_smooth = np.round(y_smooth).astype(int)
-
-    # 4. Correct with moving average per bscan
-    for each bscan:
-        create moving average of y_coords with window size X and put outliers back in place (if distance to moving average > threshold)
-
-    """
-
-    return _map_coords_to3D(y_coords, image.shape, label_id)
+    return _map_coords_to3D(y_coords, image.shape, color_id, valid=valid)
 
 
-@register("remove_outliers")
-def remove_outliers(image: np.ndarray, outlier_size: int = 0) -> np.ndarray:
-    label_id = _get_label_id(image)
+@register("remove_small_objects")
+def remove_small_objects(labels: np.ndarray, max_object_size: int = 0) -> np.ndarray:
+    color_id = _get_color_id(labels)
 
-    b_scans = image.shape[0]
-    bool_image = image.astype(bool)
-    output = np.empty_like(image, dtype=bool)
+    b_scans = labels.shape[0]
+    bool_image = labels.astype(bool)
+    output = np.empty_like(labels, dtype=bool)
 
     for bscan in range(b_scans):
         output[bscan, :, :] = morphology.remove_small_objects(
-            bool_image[bscan, :, :], max_size=outlier_size, connectivity=2
+            bool_image[bscan, :, :], max_size=max_object_size, connectivity=2
         )
 
-    output = output.astype(np.uint8) * label_id
+    output = output.astype(np.uint8) * color_id
     return output
 
 
 @register("interpolate_gaps")
-def interpolate_gaps(image: np.ndarray) -> np.ndarray:
-    label_id = _get_label_id(image)
-
-    surface = np.argmax(image, axis=1).astype(np.float32)
-
-    gaps = np.all(image == 0, axis=1)
-    surface[gaps] = np.nan
-    valid = ~np.isnan(surface)
-
-    Z, X = np.indices(surface.shape)
-    points = np.column_stack((Z[valid], X[valid]))
-    values = surface[valid]
-
-    interpolated = griddata(points, values, (Z, X), method="linear")
-
-    if np.isnan(interpolated).any():
-        nearest = griddata(points, values, (Z, X), method="nearest")
-        interpolated[np.isnan(interpolated)] = nearest[np.isnan(interpolated)]
-
-    return _map_coords_to3D(interpolated, image.shape, label_id)
-
-
-@register("zero_out")
-def zero_out(
-    image: np.ndarray, labels: np.ndarray, direction: Literal["above", "below"]
+def interpolate_gaps(
+    surface: np.ndarray,
+    roi_corner_points: list[tuple[int, int]] | np.ndarray | None = None,
 ) -> np.ndarray:
-    _is_same_shape(image, labels)
+    color_id = _get_color_id(surface)
+    shape_3D = surface.shape
+
+    """
+    #! 2D support, needs testing after v0.4.0
+    # 2D case (single B-scan): griddata needs at least 2 points in different positions
+    # to triangulate — with shape[0]==1 we only have a 1D problem (lateral axis only),
+    # so we use 1D linear interpolation via numpy instead.
+    if shape_3D[0] == 1:
+        surface_1d = np.argmax(surface[0], axis=0).astype(np.float32)  # (lateral,)
+        has_signal = np.any(surface[0] > 0, axis=0)                    # (lateral,)
+        gaps = ~has_signal
+
+        if not has_signal.any():
+            raise ValueError(
+                "No surface points available for interpolation. "
+                "Ensure the layer contains coordinate labels inside the ROI."
+            )
+
+        if gaps.any():
+            x = np.arange(shape_3D[2])
+            surface_1d[gaps] = np.interp(x[gaps], x[has_signal], surface_1d[has_signal])
+
+        surface_2D = surface_1d[np.newaxis, :]  # (1, lateral)
+        return _map_coords_to3D(surface_2D, shape_3D, color_id, valid=has_signal[np.newaxis, :])
+    """
+
+    if roi_corner_points is not None:
+        pts = np.asarray(roi_corner_points, dtype=np.int32)
+        roi_mask = _roi_to_volume(pts, shape=shape_3D)
+        in_roi = np.any(roi_mask, axis=1)  # only include A-scans in ROI
+    else:
+        in_roi = np.ones((shape_3D[0], shape_3D[2]), dtype=bool)  # include all A-scans
+
+    src_mask = in_roi & np.any(surface > 0, axis=1)  # all points with labels inside roi
+    gaps_to_fill = in_roi & ~np.any(
+        surface > 0, axis=1
+    )  # all points without labels inside roi
+
+    surface_2D = np.argmax(surface, axis=1).astype(np.float32)  # hight coordinates
+    surface_2D[~in_roi] = np.nan  # ~ means "not"
+    surface_2D[gaps_to_fill] = np.nan
+
+    src_points = np.column_stack(np.where(src_mask))
+    values = surface_2D[src_mask]
+
+    if src_points.shape[0] == 0:
+        raise ValueError(
+            "No surface points available for interpolation. "
+            "Ensure the layer contains coordinate labels inside the ROI."
+        )
+
+    if not np.any(gaps_to_fill):
+        return _map_coords_to3D(surface_2D, shape_3D, color_id, valid=src_mask)
+
+    gap_points = np.column_stack(np.where(gaps_to_fill))
+    filled = griddata(src_points, values, gap_points, method="linear")
+
+    if np.isnan(filled).any():
+        nearest = griddata(src_points, values, gap_points, method="nearest")
+        filled[np.isnan(filled)] = nearest[np.isnan(filled)]
+
+    gap_rows, gap_cols = np.where(gaps_to_fill)
+    surface_2D[gap_rows, gap_cols] = filled
+
+    return _map_coords_to3D(surface_2D, shape_3D, color_id, valid=in_roi)
+
+
+@register("zero_out_area")
+def zero_out_area(
+    image: np.ndarray, surface_coords: np.ndarray, direction: Literal["above", "below"]
+) -> np.ndarray:
+    _is_same_shape(image, surface_coords)
 
     yy = np.arange(image.shape[1])  # Create a range for y-coordinates
     yy = yy.reshape(1, -1, 1)  # Reshape to ensure it can be broadcasted
 
-    surface = np.argmax(labels, axis=1)
+    surface = np.argmax(surface_coords, axis=1)
 
     copy = image.copy()
 
@@ -204,25 +240,30 @@ def zero_out(
 
 @register("replace_reflection")
 def replace_reflection(
-    image: np.ndarray, labels: np.ndarray, padding: int = 1, offset: int = 5
+    image: np.ndarray,
+    reflection: np.ndarray,
+    axial_padding: int = 1,
+    axial_offset: int = 5,
 ) -> np.ndarray:
-    _is_same_shape(image, labels)
+    _is_same_shape(image, reflection)
 
-    if (padding * 2 + 1) >= offset:
+    if (axial_padding * 2 + 1) >= axial_offset:
         raise ValueError(
             "Offset must be at least padding*2 + 1 to avoid overlap of replacement area."
         )
 
     result = image.copy()
 
-    reflection_surface = np.argmax(labels, axis=1)
+    reflection_surface = np.argmax(reflection, axis=1)
 
     z_coords, x_coords = np.meshgrid(
         np.arange(image.shape[0]), np.arange(image.shape[2]), indexing="ij"
     )
 
-    for shift in range(-padding, padding + 1):
-        source_y = np.clip(reflection_surface + offset + shift, 0, image.shape[1] - 1)
+    for shift in range(-axial_padding, axial_padding + 1):
+        source_y = np.clip(
+            reflection_surface + axial_offset + shift, 0, image.shape[1] - 1
+        )
         target_y = np.clip(reflection_surface + shift, 0, image.shape[1] - 1)
         result[z_coords, target_y, x_coords] = image[z_coords, source_y, x_coords]
 
@@ -230,13 +271,13 @@ def replace_reflection(
 
 
 @register("untilt")
-def untilt(image: np.ndarray, labels: np.ndarray | None) -> np.ndarray:
-    if labels is None:
+def untilt(image: np.ndarray, substratum_coords: np.ndarray | None) -> np.ndarray:
+    if substratum_coords is None:
         return image
 
-    _is_same_shape(image, labels)
+    _is_same_shape(image, substratum_coords)
 
-    coords = np.argmax(labels, axis=1)
+    coords = np.argmax(substratum_coords, axis=1)
     bscans, axial, lateral = image.shape
     untilted = np.zeros_like(image)
 
@@ -255,10 +296,10 @@ def enhance_contrast(
     image: np.ndarray,
     method: Literal["gamma", "clip", "clahe"],
     gamma: float = 1.0,
-    clip_low_percentile: float = 1.0,  # 1%
-    clip_high_percentile: float = 99.0,  # 99%
-    clahe_clip: float = 2.0,
-    clahe_tile: int = 8,
+    clip_low_pct: float = 1.0,  # 1%
+    clip_high_pct: float = 99.0,  # 99%
+    clahe_clip_limit: float = 2.0,
+    clahe_tile_size: int = 8,
 ) -> np.ndarray:
     _is_uint8(image)
 
@@ -279,33 +320,33 @@ def enhance_contrast(
         # ignore zero values for percentile calc
         mask = copy > 0
         non_zero = copy[mask]
-        low = np.percentile(non_zero, clip_low_percentile)
-        high = np.percentile(non_zero, clip_high_percentile)
+        low = np.percentile(non_zero, clip_low_pct)
+        high = np.percentile(non_zero, clip_high_pct)
         copy = np.clip(copy, low, high)
         copy = (copy - low) / (high - low) * 255  # rescale to full range
         copy[~mask] = 0  # set zero values back to zero after clipping
 
     elif method == "clahe":
         clahe = cv2.createCLAHE(
-            clipLimit=clahe_clip, tileGridSize=(clahe_tile, clahe_tile)
+            clipLimit=clahe_clip_limit, tileGridSize=(clahe_tile_size, clahe_tile_size)
         )
         for bscan in range(b_scans):
             copy[bscan] = clahe.apply(copy[bscan])
 
-    return convert_to_8bit(copy)
+    return _convert_to_8bit(copy)
 
 
 @register("threshold")
 def threshold(
     image: np.ndarray,
     method: str,  # choices set in THRESHOLD_METHODS
-    manual_value: int = 128,
+    manual_threshold: int = 128,
     ignore_black: bool = True,
     ignore_white: bool = True,
     color_id: int = 9,
 ) -> np.ndarray:
     if method == "manual":
-        t = float(manual_value)
+        t = float(manual_threshold)
         binary = (image > t).astype(np.uint8)
         return binary * color_id
 
@@ -380,18 +421,18 @@ def export_to_nifti(image: np.ndarray, affine: np.ndarray, path: Path) -> None:
 
 @register("create_height_map")
 def create_height_map(
-    binary: np.ndarray,
+    segmentation: np.ndarray,
     substratum: np.ndarray | None = None,
     spacing: np.ndarray | None = None,
-    max_h: int = 0,
+    max_height_um: int = 0,
     colorbar: bool = False,
     scalebar: bool = False,
     preview: bool = False,
     axes: bool = False,
-    savepath: Path | None = None,
+    path: Path | None = None,
 ) -> None:
     height_map = _calc_height_map(
-        binary=binary,
+        binary=segmentation,
         substratum=substratum,
         axial_spacing=spacing[1] if spacing is not None else None,
     )
@@ -399,41 +440,42 @@ def create_height_map(
     fig = _plot_height_map(
         height_map=height_map,
         spacing=spacing,
-        max_h=max_h,
+        max_h=max_height_um,
         colorbar=colorbar,
         scalebar=scalebar,
         axes=axes,
     )
 
     if preview:
+        fig.set_dpi(300)
         plt.show(block=False)
     else:
-        if savepath is None:
-            raise ValueError("savepath must be provided if preview is not selected.")
+        if path is None:
+            raise ValueError("path must be provided if preview is not selected.")
 
-        dir = savepath.parent
-        filename = savepath.stem  # includes _Hmap
+        dir = path.parent
+        filename = path.stem  # includes _Hmap
         i = 1
-        while savepath.exists():
-            savepath = dir / f"{filename}_{i}.tiff"
+        while path.exists():
+            path = dir / f"{filename}_{i}.tiff"
             i += 1
-        fig.savefig(savepath)
+        fig.savefig(path, dpi=1200)
 
 
 @register("create_bv_map")
 def create_bv_map(
-    binary: np.ndarray,
+    segmentation: np.ndarray,
     substratum: np.ndarray | None = None,
     spacing: np.ndarray | None = None,
-    max_h: int = 0,
+    max_height_um: int = 0,
     colorbar: bool = False,
     scalebar: bool = False,
     preview: bool = False,
     axes: bool = False,
-    savepath: Path | None = None,
+    path: Path | None = None,
 ) -> None:
     bv_map = _calc_bv_map(
-        binary=binary,
+        binary=segmentation,
         substratum=substratum,
         spacing=spacing if spacing is not None else None,
     )
@@ -441,38 +483,46 @@ def create_bv_map(
     fig = _plot_bv_map(
         bv_map,
         spacing=spacing,
-        max_h=max_h,
+        max_h=max_height_um,
         colorbar=colorbar,
         scalebar=scalebar,
         axes=axes,
     )
 
     if preview:
+        fig.set_dpi(300)
         plt.show(block=False)
     else:
-        if savepath is None:
-            raise ValueError("savepath must be provided if preview is not selected.")
+        if path is None:
+            raise ValueError("path must be provided if preview is not selected.")
 
-        dir = savepath.parent
-        filename = savepath.stem  # includes BVmap
+        dir = path.parent
+        filename = path.stem  # includes BVmap
         i = 1
-        while savepath.exists():
-            savepath = dir / f"{filename}_{i}.tiff"
+        while path.exists():
+            path = dir / f"{filename}_{i}.tiff"
             i += 1
-        fig.savefig(savepath)
+        fig.savefig(path, dpi=1200)
 
 
-@register("save_metrics")
-def save_metrics(
-    binary: np.ndarray,
+@register("calculate_metrics")
+def calculate_metrics(
+    segmentation: np.ndarray,
     layername: str,
-    savepath: Path,
+    path: Path,
     spacing: np.ndarray,
     substratum: np.ndarray | None = None,
+    roi_corner_points: list[tuple[int, int]] | np.ndarray | None = None,
 ) -> None:
-    results = _calc_metrics(binary, layername, spacing, substratum)
+    results = _calc_metrics(
+        segmentation,
+        layername,
+        spacing,
+        substratum,
+        roi_corner_points=roi_corner_points,
+    )
 
-    _save_or_append_metrics(results, savepath)
+    _save_or_append_metrics(results, path)
 
 
 # endregion FUNCTIONS
@@ -481,8 +531,38 @@ def save_metrics(
 # -----------------------------------------------------------------------
 # --- Helper functions --------------------------------------------------
 # region HELPERS
+def _convert_to_8bit(image: np.ndarray) -> np.ndarray:
+    image = (image - image.min()) / (image.max() - image.min())
+
+    converted = (image * 255).astype(np.uint8)
+    return converted
+
+
+def _roi_to_volume(
+    points: list[tuple[int, int]] | np.ndarray,
+    shape: tuple[int, ...],
+) -> np.ndarray:
+    points = np.asarray(points, dtype=np.int32)
+    if points.shape != (4, 2):
+        raise ValueError(
+            f"Expected exactly 4 (u, v) coordinate pairs, got shape {points.shape}."
+        )
+
+    cv_points = np.stack([points[:, 1], points[:, 0]], axis=1).reshape((-1, 1, 2))
+
+    roi2d = np.zeros((shape[0], shape[2]), dtype=np.uint8)
+    cv2.fillPoly(roi2d, [cv_points], 1)
+    roi2d = roi2d.astype(bool)
+    extruded = np.broadcast_to(roi2d[:, np.newaxis, :], shape).copy()
+
+    return extruded
+
+
 def _map_coords_to3D(
-    coords: np.ndarray, image_shape: tuple[int, int, int], label_id: int = 1
+    coords: np.ndarray,
+    image_shape: tuple[int, int, int],
+    label_id: int = 1,
+    valid: np.ndarray | None = None,
 ) -> np.ndarray:
     mapped = np.zeros(image_shape, dtype=np.uint8)
     b_scans, axial, lateral = image_shape
@@ -490,9 +570,14 @@ def _map_coords_to3D(
     b_scans_idx, lateral_idx = np.meshgrid(
         np.arange(b_scans), np.arange(lateral), indexing="ij"
     )
-    axial_idx = np.clip(np.rint(coords), 0, axial - 1).astype(int)
+    # Replace NaN with 0 to avoid RuntimeWarning during cast
+    coords_clean = np.nan_to_num(coords, nan=0.0)
+    axial_idx = np.clip(np.rint(coords_clean), 0, axial - 1).astype(int)
 
-    mapped[b_scans_idx, axial_idx, lateral_idx] = label_id
+    if valid is None:
+        valid = np.ones(coords.shape, dtype=bool)
+
+    mapped[b_scans_idx[valid], axial_idx[valid], lateral_idx[valid]] = label_id
 
     return mapped
 
@@ -513,7 +598,7 @@ def _is_binary(binary_stack: np.ndarray) -> bool:
     return True
 
 
-def _get_label_id(binary_stack: np.ndarray) -> int:
+def _get_color_id(binary_stack: np.ndarray) -> int:
     if not _is_binary(binary_stack):
         raise ValueError("input stack is not binary.")
 
@@ -596,9 +681,12 @@ def _calc_height_map(
 
     untilted = untilt(binary, substratum)
 
-    hm = np.argmax(np.flip(untilted, axis=1), axis=1)
+    hm = np.argmax(untilted, axis=1)
+    hm = binary.shape[1] - hm
+
     # set height indices to 0 where no biofilm signal occurs
-    hm[~np.any(binary, axis=1)] = 0
+    empty_ascans = ~np.any(untilted, axis=1)
+    hm[empty_ascans] = 0
 
     # Convert index to physical height
     if axial_spacing is not None:
@@ -610,13 +698,13 @@ def _calc_height_map(
 def _plot_height_map(
     height_map: np.ndarray,
     spacing: np.ndarray | list[float] | None = None,
-    max_h: int | None = None,  # in µm
+    max_h: int | None = None,  # in um
     colorbar: bool = False,
     scalebar: bool = False,
     axes: bool = False,
 ) -> Figure:
     fig, ax = plt.subplots(constrained_layout=True)
-    fig.set_dpi(300)
+    fig.set_dpi(1200)
 
     # Calculate extent for physical units
     if spacing is not None:
@@ -631,11 +719,17 @@ def _plot_height_map(
         extent = None
 
     # Set vmax
-    vmax = max_h if max_h is not None else height_map.max()  # already in µm
+    vmax = max_h if max_h is not None else height_map.max()  # already in um
 
     # Plot with extent and aspect='auto' to maintain correct aspect ratio with physical units
     im = ax.imshow(
-        height_map, cmap="inferno", vmin=0, vmax=vmax, extent=extent, aspect="equal"
+        height_map,
+        cmap="inferno",
+        vmin=0,
+        vmax=vmax,
+        extent=extent,
+        aspect="equal",
+        interpolation="nearest",
     )
 
     if axes and spacing is not None:
@@ -666,9 +760,9 @@ def _calc_bv_map(
     bv_map = np.count_nonzero(untilted, axis=1).astype(np.float32)
 
     if spacing is not None:
-        bv_map = bv_map * (spacing[1] * 1000.0)  # gives "dense" height in µm
-        area = spacing[0] * spacing[2] * 1000000.0  # mm² to µm²
-        bv_map = bv_map * area  # convert to biovolume in µm³
+        # All spacings in mm; convert to µm for consistent domain
+        axial_um = spacing[1] * 1000.0
+        bv_map = bv_map * axial_um
 
     return bv_map
 
@@ -682,7 +776,7 @@ def _plot_bv_map(
     axes: bool = False,
 ) -> Figure:
     fig, ax = plt.subplots(constrained_layout=True)
-    fig.set_dpi(300)
+    fig.set_dpi(1200)
 
     # Calculate extent for physical units
     if spacing is not None:
@@ -696,24 +790,20 @@ def _plot_bv_map(
     else:
         extent = None
 
-    # Set vmax
-    if spacing is not None:
-        spacing_bscans = spacing[0] * 1000.0
-        spacing_lateral = spacing[2] * 1000.0
-        cbar_ylabel = "Volume (µm³)"
-    else:
-        spacing_bscans = 1.0
-        spacing_lateral = 1.0
-        cbar_ylabel = "Thickness (µm)"
+    cbar_ylabel = "Thickness (µm)"
 
-    if max_h is not None:
-        max_vol = max_h * spacing_lateral * spacing_bscans
-    else:
-        max_vol = bv_map.max() * spacing_bscans * spacing_lateral
+    if max_h is None:
+        max_h = bv_map.max()
 
     # Plot with extent and aspect='auto' to maintain correct aspect ratio with physical units
     im = ax.imshow(
-        bv_map, cmap="inferno", vmin=0, vmax=max_vol, extent=extent, aspect="equal"
+        bv_map,
+        cmap="inferno",
+        vmin=0,
+        vmax=max_h,
+        extent=extent,
+        aspect="equal",
+        interpolation="nearest",
     )
 
     if axes and spacing is not None:
@@ -783,6 +873,7 @@ def _calc_metrics(
     layername: str,
     spacing: np.ndarray,
     substratum: np.ndarray | None = None,
+    roi_corner_points: list[tuple[int, int]] | np.ndarray | None = None,
 ) -> list[tuple]:
     if not _is_binary(binary):
         raise ValueError("Input image not binary.")
@@ -798,41 +889,58 @@ def _calc_metrics(
         spacing,
     )
 
-    bscans, _, lateral = binary.shape
-    spacing_factor = spacing[0] * spacing[2] * 1000000.0  # mm² to µm²
-    valid = Hmap > 0
+    if roi_corner_points is not None:
+        pts = np.asarray(roi_corner_points, dtype=np.int32)
+        roi_mask = _roi_to_volume(pts, shape=binary.shape)
+    else:
+        roi_mask = np.ones(binary.shape, dtype=bool)
+
+    roi_mask_2d = np.any(roi_mask, axis=1)
+    if not np.any(roi_mask_2d):
+        raise ValueError("ROI does not contain any A-scans.")
+
+    lateral_um = spacing[2] * 1000.0
+    bscan_um = spacing[0] * 1000.0
 
     # H-/BV-map independent metrics
-    pixel_count = np.sum(binary != 0)
-    substratum_area = bscans * lateral * spacing_factor
-    biovolume_dense = np.sum(BVmap)
-    biovolume_porous = np.sum(Hmap) * spacing_factor
-    porosity = 1 - (biovolume_dense / biovolume_porous)  # percentage value [0, 1]
-    substratum_coverage = np.sum(valid) / (bscans * lateral)  # percentage value [0, 1]
+    pixel_count = np.sum(binary[roi_mask] != 0)
+    # area of one A-scan in µm² = lateral_um * bscan_um
+    substratum_area = np.sum(roi_mask_2d) * lateral_um * bscan_um
+    # biovolume_dense represents all biofilm-classified pixels condensed, pores removed
+    biovolume_dense = np.sum(BVmap[roi_mask_2d]) * lateral_um * bscan_um
+    # Porous volume: Hmap is height in µm, multiply by lateral*bscan area to get µm³
+    biovolume_porous = np.sum(Hmap[roi_mask_2d]) * lateral_um * bscan_um
+    porosity = 1 - (biovolume_dense / biovolume_porous) if biovolume_porous > 0 else 0.0
+    # Coverage: fraction of A-scans in ROI that contain biofilm
+    biofilm_in_roi = np.any(binary, axis=1) & roi_mask_2d
+    substratum_coverage = np.sum(biofilm_in_roi) / np.sum(roi_mask_2d)
 
-    #! question: use valid or not -> how does it influence real world properties if left out?
     # Hmap based metrics
-    min_Hmap = np.min(Hmap[valid])
-    max_Hmap = np.max(Hmap[valid])
-    mean_Hmap = np.mean(Hmap[valid])
-    std_Hmap = np.std(Hmap[valid])
-    Ra = np.mean(np.abs(Hmap[valid] - mean_Hmap))  # Mittenrauwert [µm]
+    min_Hmap = np.min(Hmap[roi_mask_2d])
+    max_Hmap = np.max(Hmap[roi_mask_2d])
+    mean_Hmap = np.mean(Hmap[roi_mask_2d])
+    std_Hmap = np.std(Hmap[roi_mask_2d])
+    Ra = np.mean(np.abs(Hmap[roi_mask_2d] - mean_Hmap))  # Mittenrauwert [µm]
     Rq = std_Hmap  # quadratische Rauheit (engl. R_rms=root-mean-squared roughness)
-    R_coeff = Ra / np.mean(Hmap)  # Roughness coefficient for flow calculations
-
-    # BVmap based metrics
-    # mean_local_volume = np.mean(BVmap[valid])
-    # std_local_volume = np.std(BVmap[valid])
+    R_coeff = Ra / mean_Hmap if mean_Hmap != 0 else 0.0
 
     # for csv with rows: param-name, unit, value
     results = [
         ("file", "-", layername),
         ("px_count", "# px", pixel_count),
-        ("substratum_area", "µm²", substratum_area),
-        ("BV_dense", "µm³", biovolume_dense),
-        ("BV_porous", "µm³", biovolume_porous),
-        ("porosity", "(%)", porosity),
-        ("substratum_coverage", "(%)", substratum_coverage),
+        ("axial_spacing", "µm", spacing[1] * 1000),
+        (
+            "lateral_spacing",
+            "µm",
+            spacing[2] * 1000
+            if isclose(spacing[2], spacing[0], abs_tol=0.00005)
+            else "inconsistent",
+        ),
+        ("substratum_area", "mm²", substratum_area / 10e6),
+        ("BV_dense", "mm³", biovolume_dense / 10e9),
+        ("BV_porous", "mm³", biovolume_porous / 10e9),
+        ("porosity", "(%)", porosity * 100),
+        ("substratum_coverage", "(%)", substratum_coverage * 100),
         ("min_height", "µm", min_Hmap),
         ("max_height", "µm", max_Hmap),
         ("mean_height", "µm", mean_Hmap),
@@ -840,8 +948,6 @@ def _calc_metrics(
         ("Ra", "µm", Ra),
         ("Rq", "µm", Rq),
         ("R_coeff", "-", R_coeff),
-        # ("mean_local_volume", "µm³", mean_local_volume),
-        # ("std_local_volume", "µm³", std_local_volume),
     ]
 
     return results
@@ -856,9 +962,6 @@ def _save_or_append_metrics(results, path: Path) -> None:
     )
 
     new_row = pd.DataFrame([values], columns=columns)
-    new_row = new_row.round(
-        {(parameter, unit): 4 if unit == "(%)" else 1 for parameter, unit, _ in results}
-    )
 
     if path.exists():
         df_existing = pd.read_csv(

@@ -1,10 +1,10 @@
 from pathlib import Path
-import numpy as np
-from napari.viewer import Viewer
-from napari.layers import Layer
+import inspect
+from typing import TYPE_CHECKING
+
 from .registry import REGISTRY
 from .recorder import PipelineRecorder
-from .functions import convert_to_8bit, _is_binary
+from .functions import _is_binary
 from qtpy.QtWidgets import QApplication
 from tqdm import tqdm
 
@@ -14,6 +14,10 @@ from .constants import (
     LAYER_NAME_PLACEHOLDER,
 )
 
+if TYPE_CHECKING:
+    import napari.viewer
+    import napari.layers
+
 
 def _substitute(name: str | None, base_layer: str) -> str | None:
     """Replace $base placeholder with actual layer name."""
@@ -22,7 +26,7 @@ def _substitute(name: str | None, base_layer: str) -> str | None:
     return name.replace(BASE_LAYER_PLACEHOLDER, base_layer)
 
 
-def _resolve_savepath(template: str, layer: Layer) -> Path:
+def _resolve_savepath(template: str, layer: "napari.layers.Layer") -> Path:
     meta = layer.metadata if hasattr(layer, "metadata") else {}
     source_dir = str(meta.get("source_dir", Path.home()))
     layer_name = layer.name if hasattr(layer, "name") else "unknown_layer"
@@ -34,13 +38,11 @@ def _resolve_savepath(template: str, layer: Layer) -> Path:
 
 def replay_pipeline(
     recorder: PipelineRecorder,
-    viewer: Viewer,
+    viewer: "napari.viewer.Viewer",
     base_layer_name: str | None = None,
 ) -> None:
     if base_layer_name is None:
         return
-
-    base_layer_object = viewer.layers[base_layer_name]
 
     for step in recorder.steps:
         func = REGISTRY[step["function"]]
@@ -55,49 +57,74 @@ def replay_pipeline(
                 inputs[arg_name] = None
             else:
                 layer = viewer.layers[layer_name]
-                if layer.data.dtype == np.float32:
-                    layer.data = convert_to_8bit(layer.data)
                 inputs[arg_name] = layer.data
 
         # if path is given, the func will not return data for a new layer
         # but use that path to save something (Hmap/BVmap/metrics)
         # and the return value will be None
+        extra = {}
+        if "layername" in inspect.signature(func).parameters:
+            extra["layername"] = base_layer_name
+        if "roi_corner_points" in inspect.signature(func).parameters:
+            if "roi_corner_points" not in step["params"]:
+                # Only inject from metadata if not already in params
+                input_layer_name = _substitute(
+                    next(iter(step["input_layers"].values())), base_layer_name
+                )
+                if input_layer_name is not None:
+                    try:
+                        layer = viewer.layers[input_layer_name]
+                        roi_points = layer.metadata.get("roi_corner_points")
+                        if roi_points is None:
+                            roi_points = layer.metadata.get("roi_points")
+                        if roi_points is not None:
+                            extra["roi_corner_points"] = roi_points
+                    except KeyError:
+                        pass
         if "path" in step["params"]:
-            resolved_path = _resolve_savepath(step["params"]["path"], base_layer_object)
-            result = func(**inputs, **{**step["params"], "path": resolved_path})
+            resolved_path = _resolve_savepath(
+                step["params"]["path"], viewer.layers[base_layer_name]
+            )
+            result = func(
+                **inputs, **{**step["params"], "path": resolved_path}, **extra
+            )
         else:
-            result = func(**inputs, **step["params"])
+            result = func(**inputs, **step["params"], **extra)
 
         output_name = step["output_layer"]
-
-        if result is None and output_name is None:
-            QApplication.processEvents()
-            continue
-
         if base_layer_name is not None:
             output_name = _substitute(output_name, base_layer_name)
 
+        if result is None and output_name is None:
+            # fn used for side-effect (e.g. saving a file), return=None -> skip layer creation
+            QApplication.processEvents()
+            continue
+        elif output_name in [lay.name for lay in viewer.layers]:
+            # layer already exists -> only update layer, skip creation
+            viewer.layers[output_name].data = result
+            viewer.layers[output_name].refresh()
+            QApplication.processEvents()
+            continue
+
+        primary_input_name = _substitute(
+            next(iter(step["input_layers"].values())), base_layer_name
+        )
+        assert primary_input_name is not None
+        primary_layer = viewer.layers[primary_input_name]
+
         affine = (
-            base_layer_object.affine.affine_matrix
-            if hasattr(base_layer_object, "affine")
-            else np.eye(4)
-        )
-        metadata = (
-            {**base_layer_object.metadata}
-            if hasattr(base_layer_object, "metadata")
-            else {}
-        )
-        scale = (
-            base_layer_object.scale
-            if hasattr(base_layer_object, "scale")
-            else (1.0, 1.0, 1.0)
-        )
-        axis_labels = (
-            base_layer_object.axis_labels
-            if hasattr(base_layer_object, "axis_labels")
+            primary_layer.affine.affine_matrix
+            if hasattr(primary_layer, "affine")
             else None
         )
-        units = base_layer_object.units if hasattr(base_layer_object, "units") else None
+        scale = primary_layer.scale if hasattr(primary_layer, "scale") else None
+        axis_labels = (
+            primary_layer.axis_labels if hasattr(primary_layer, "axis_labels") else None
+        )
+        units = primary_layer.units if hasattr(primary_layer, "units") else None
+        metadata = (
+            {**primary_layer.metadata} if hasattr(primary_layer, "metadata") else {}
+        )
 
         if _is_binary(result):
             viewer.add_labels(
@@ -121,11 +148,20 @@ def replay_pipeline(
                 contrast_limits=(0, 255),
             )
 
+        if (
+            step["function"] == "define_roi"
+            and "roi_corner_points" in step["params"]
+            and output_name is not None
+        ):
+            viewer.layers[output_name].metadata["roi_corner_points"] = step["params"][
+                "roi_corner_points"
+            ]
+
         QApplication.processEvents()
 
 
 def replay_on_batch(
-    recorder: PipelineRecorder, viewer: Viewer, source_folder: Path
+    recorder: PipelineRecorder, viewer: "napari.viewer.Viewer", source_folder: Path
 ) -> None:
     print()
     print("#" * 20)

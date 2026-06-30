@@ -1,16 +1,18 @@
-from typing import cast
-from napari.layers import Layer, Labels
+from typing import cast, TYPE_CHECKING
 import numpy as np
 from skimage.measure import label
 import matplotlib.pyplot as plt
 
+if TYPE_CHECKING:
+    import napari.layers
 
-def scale1000(image: Layer) -> None:
+
+def scale1000(image: "napari.layers.Layer") -> None:
     image.scale = np.asarray([1000, 1000, 1000])
     image.refresh()
 
 
-def plot_connected_components(image: Labels) -> None:
+def plot_connected_components(image: "napari.layers.Labels") -> None:
     all_sizes = []
     for bscan in range(image.data.shape[0]):
         labels = cast(np.ndarray, label(image.data[bscan], connectivity=2))

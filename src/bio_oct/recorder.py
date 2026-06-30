@@ -3,6 +3,25 @@ from pathlib import Path
 from .constants import BASE_LAYER_PLACEHOLDER
 
 
+def _normalize_for_yaml(value):
+    if isinstance(value, tuple):
+        return [_normalize_for_yaml(item) for item in value]
+    if isinstance(value, list):
+        return [_normalize_for_yaml(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _normalize_for_yaml(item) for key, item in value.items()}
+    if isinstance(value, Path):
+        return str(value)
+    if hasattr(value, "tolist"):
+        return value.tolist()
+    if hasattr(value, "item") and not isinstance(value, (str, bytes)):
+        try:
+            return value.item()
+        except (AttributeError, ValueError):
+            pass
+    return value
+
+
 class PipelineRecorder:
     def __init__(self) -> None:
         self.steps: list[dict] = []
@@ -36,7 +55,7 @@ class PipelineRecorder:
                     k: self._templatize(v) for k, v in input_layers.items()
                 },
                 "output_layer": self._templatize(output_layer),
-                "params": params,
+                "params": _normalize_for_yaml(params),
             }
         )
 
@@ -45,7 +64,7 @@ class PipelineRecorder:
         self._base_name = None
 
     def save(self, yaml_path: str | Path) -> None:
-        with open(yaml_path, "w") as f:
+        with open(yaml_path, "w", encoding="utf-8") as f:
             yaml.dump(
                 {"created with": self._base_name, "pipeline": self.steps},
                 f,
@@ -54,7 +73,7 @@ class PipelineRecorder:
             )
 
     def load(self, yaml_path: str | Path) -> None:
-        with open(yaml_path) as f:
+        with open(yaml_path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
         self.steps = data["pipeline"]
         self._base_name = None
