@@ -65,17 +65,22 @@ def replay_pipeline(
         extra = {}
         if "layername" in inspect.signature(func).parameters:
             extra["layername"] = base_layer_name
-        if "points" in inspect.signature(func).parameters:
-            input_layer_name = _substitute(
-                next(iter(step["input_layers"].values())), base_layer_name
-            )
-            if input_layer_name is not None:
-                try:
-                    layer = viewer.layers[input_layer_name]
-                    if "roi_points" in layer.metadata:
-                        extra["points"] = layer.metadata["roi_points"]
-                except KeyError:
-                    pass
+        if "roi_corner_points" in inspect.signature(func).parameters:
+            if "roi_corner_points" not in step["params"]:
+                # Only inject from metadata if not already in params
+                input_layer_name = _substitute(
+                    next(iter(step["input_layers"].values())), base_layer_name
+                )
+                if input_layer_name is not None:
+                    try:
+                        layer = viewer.layers[input_layer_name]
+                        roi_points = layer.metadata.get("roi_corner_points")
+                        if roi_points is None:
+                            roi_points = layer.metadata.get("roi_points")
+                        if roi_points is not None:
+                            extra["roi_corner_points"] = roi_points
+                    except KeyError:
+                        pass
         if "path" in step["params"]:
             resolved_path = _resolve_savepath(
                 step["params"]["path"], viewer.layers[base_layer_name]
@@ -145,10 +150,12 @@ def replay_pipeline(
 
         if (
             step["function"] == "define_roi"
-            and "points" in step["params"]
+            and "roi_corner_points" in step["params"]
             and output_name is not None
         ):
-            viewer.layers[output_name].metadata["roi_points"] = step["params"]["points"]
+            viewer.layers[output_name].metadata["roi_corner_points"] = step["params"][
+                "roi_corner_points"
+            ]
 
         QApplication.processEvents()
 
