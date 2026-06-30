@@ -21,6 +21,7 @@ Pipeline Contract:
 from typing import Literal
 from pathlib import Path
 import tifffile as tiff
+from math import isclose
 
 # third party imports
 import cv2
@@ -148,6 +149,30 @@ def interpolate_gaps(
 ) -> np.ndarray:
     color_id = _get_color_id(surface)
     shape_3D = surface.shape
+
+    """
+    #! 2D support, needs testing after v0.4.0
+    # 2D case (single B-scan): griddata needs at least 2 points in different positions
+    # to triangulate — with shape[0]==1 we only have a 1D problem (lateral axis only),
+    # so we use 1D linear interpolation via numpy instead.
+    if shape_3D[0] == 1:
+        surface_1d = np.argmax(surface[0], axis=0).astype(np.float32)  # (lateral,)
+        has_signal = np.any(surface[0] > 0, axis=0)                    # (lateral,)
+        gaps = ~has_signal
+
+        if not has_signal.any():
+            raise ValueError(
+                "No surface points available for interpolation. "
+                "Ensure the layer contains coordinate labels inside the ROI."
+            )
+
+        if gaps.any():
+            x = np.arange(shape_3D[2])
+            surface_1d[gaps] = np.interp(x[gaps], x[has_signal], surface_1d[has_signal])
+
+        surface_2D = surface_1d[np.newaxis, :]  # (1, lateral)
+        return _map_coords_to3D(surface_2D, shape_3D, color_id, valid=has_signal[np.newaxis, :])
+    """
 
     if roi_corner_points is not None:
         pts = np.asarray(roi_corner_points, dtype=np.int32)
@@ -487,8 +512,15 @@ def calculate_metrics(
     path: Path,
     spacing: np.ndarray,
     substratum: np.ndarray | None = None,
+    roi_corner_points: list[tuple[int, int]] | np.ndarray | None = None,
 ) -> None:
-    results = _calc_metrics(segmentation, layername, spacing, substratum)
+    results = _calc_metrics(
+        segmentation,
+        layername,
+        spacing,
+        substratum,
+        roi_corner_points=roi_corner_points,
+    )
 
     _save_or_append_metrics(results, path)
 
@@ -538,7 +570,9 @@ def _map_coords_to3D(
     b_scans_idx, lateral_idx = np.meshgrid(
         np.arange(b_scans), np.arange(lateral), indexing="ij"
     )
-    axial_idx = np.clip(np.rint(coords), 0, axial - 1).astype(int)
+    # Replace NaN with 0 to avoid RuntimeWarning during cast
+    coords_clean = np.nan_to_num(coords, nan=0.0)
+    axial_idx = np.clip(np.rint(coords_clean), 0, axial - 1).astype(int)
 
     if valid is None:
         valid = np.ones(coords.shape, dtype=bool)
@@ -647,9 +681,12 @@ def _calc_height_map(
 
     untilted = untilt(binary, substratum)
 
-    hm = np.argmax(np.flip(untilted, axis=1), axis=1)
+    hm = np.argmax(untilted, axis=1)
+    hm = binary.shape[1] - hm
+
     # set height indices to 0 where no biofilm signal occurs
-    hm[~np.any(binary, axis=1)] = 0
+    empty_ascans = ~np.any(untilted, axis=1)
+    hm[empty_ascans] = 0
 
     # Convert index to physical height
     if axial_spacing is not None:
@@ -723,9 +760,9 @@ def _calc_bv_map(
     bv_map = np.count_nonzero(untilted, axis=1).astype(np.float32)
 
     if spacing is not None:
-        bv_map = bv_map * (spacing[1] * 1000.0)  # gives "dense" height in µm
-        area = spacing[0] * spacing[2] * 1000000.0  # mm² to µm²
-        bv_map = bv_map * area  # convert to biovolume in µm³
+        # All spacings in mm; convert to µm for consistent domain
+        axial_um = spacing[1] * 1000.0
+        bv_map = bv_map * axial_um
 
     return bv_map
 
@@ -753,27 +790,17 @@ def _plot_bv_map(
     else:
         extent = None
 
-    # Set vmax
-    if spacing is not None:
-        spacing_bscans = spacing[0] * 1000.0
-        spacing_lateral = spacing[2] * 1000.0
-        cbar_ylabel = "Volume (µm³)"
-    else:
-        spacing_bscans = 1.0
-        spacing_lateral = 1.0
-        cbar_ylabel = "Thickness (µm)"
+    cbar_ylabel = "Thickness (µm)"
 
-    if max_h is not None:
-        max_vol = max_h * spacing_lateral * spacing_bscans
-    else:
-        max_vol = bv_map.max() * spacing_bscans * spacing_lateral
+    if max_h is None:
+        max_h = bv_map.max()
 
     # Plot with extent and aspect='auto' to maintain correct aspect ratio with physical units
     im = ax.imshow(
         bv_map,
         cmap="inferno",
         vmin=0,
-        vmax=max_vol,
+        vmax=max_h,
         extent=extent,
         aspect="equal",
         interpolation="nearest",
@@ -846,6 +873,7 @@ def _calc_metrics(
     layername: str,
     spacing: np.ndarray,
     substratum: np.ndarray | None = None,
+    roi_corner_points: list[tuple[int, int]] | np.ndarray | None = None,
 ) -> list[tuple]:
     if not _is_binary(binary):
         raise ValueError("Input image not binary.")
@@ -861,41 +889,58 @@ def _calc_metrics(
         spacing,
     )
 
-    bscans, _, lateral = binary.shape
-    spacing_factor = spacing[0] * spacing[2] * 1000000.0  # mm² to µm²
-    valid = Hmap > 0
+    if roi_corner_points is not None:
+        pts = np.asarray(roi_corner_points, dtype=np.int32)
+        roi_mask = _roi_to_volume(pts, shape=binary.shape)
+    else:
+        roi_mask = np.ones(binary.shape, dtype=bool)
+
+    roi_mask_2d = np.any(roi_mask, axis=1)
+    if not np.any(roi_mask_2d):
+        raise ValueError("ROI does not contain any A-scans.")
+
+    lateral_um = spacing[2] * 1000.0
+    bscan_um = spacing[0] * 1000.0
 
     # H-/BV-map independent metrics
-    pixel_count = np.sum(binary != 0)
-    substratum_area = bscans * lateral * spacing_factor
-    biovolume_dense = np.sum(BVmap)
-    biovolume_porous = np.sum(Hmap) * spacing_factor
-    porosity = 1 - (biovolume_dense / biovolume_porous)  # percentage value [0, 1]
-    substratum_coverage = np.sum(valid) / (bscans * lateral)  # percentage value [0, 1]
+    pixel_count = np.sum(binary[roi_mask] != 0)
+    # area of one A-scan in µm² = lateral_um * bscan_um
+    substratum_area = np.sum(roi_mask_2d) * lateral_um * bscan_um
+    # biovolume_dense represents all biofilm-classified pixels condensed, pores removed
+    biovolume_dense = np.sum(BVmap[roi_mask_2d]) * lateral_um * bscan_um
+    # Porous volume: Hmap is height in µm, multiply by lateral*bscan area to get µm³
+    biovolume_porous = np.sum(Hmap[roi_mask_2d]) * lateral_um * bscan_um
+    porosity = 1 - (biovolume_dense / biovolume_porous) if biovolume_porous > 0 else 0.0
+    # Coverage: fraction of A-scans in ROI that contain biofilm
+    biofilm_in_roi = np.any(binary, axis=1) & roi_mask_2d
+    substratum_coverage = np.sum(biofilm_in_roi) / np.sum(roi_mask_2d)
 
-    #! question: use valid or not -> how does it influence real world properties if left out?
     # Hmap based metrics
-    min_Hmap = np.min(Hmap[valid])
-    max_Hmap = np.max(Hmap[valid])
-    mean_Hmap = np.mean(Hmap[valid])
-    std_Hmap = np.std(Hmap[valid])
-    Ra = np.mean(np.abs(Hmap[valid] - mean_Hmap))  # Mittenrauwert [µm]
+    min_Hmap = np.min(Hmap[roi_mask_2d])
+    max_Hmap = np.max(Hmap[roi_mask_2d])
+    mean_Hmap = np.mean(Hmap[roi_mask_2d])
+    std_Hmap = np.std(Hmap[roi_mask_2d])
+    Ra = np.mean(np.abs(Hmap[roi_mask_2d] - mean_Hmap))  # Mittenrauwert [µm]
     Rq = std_Hmap  # quadratische Rauheit (engl. R_rms=root-mean-squared roughness)
-    R_coeff = Ra / np.mean(Hmap)  # Roughness coefficient for flow calculations
-
-    # BVmap based metrics
-    # mean_local_volume = np.mean(BVmap[valid])
-    # std_local_volume = np.std(BVmap[valid])
+    R_coeff = Ra / mean_Hmap if mean_Hmap != 0 else 0.0
 
     # for csv with rows: param-name, unit, value
     results = [
         ("file", "-", layername),
         ("px_count", "# px", pixel_count),
-        ("substratum_area", "µm²", substratum_area),
-        ("BV_dense", "µm³", biovolume_dense),
-        ("BV_porous", "µm³", biovolume_porous),
-        ("porosity", "(%)", porosity),
-        ("substratum_coverage", "(%)", substratum_coverage),
+        ("axial_spacing", "µm", spacing[1] * 1000),
+        (
+            "lateral_spacing",
+            "µm",
+            spacing[2] * 1000
+            if isclose(spacing[2], spacing[0], abs_tol=0.00005)
+            else "inconsistent",
+        ),
+        ("substratum_area", "mm²", substratum_area / 10e6),
+        ("BV_dense", "mm³", biovolume_dense / 10e9),
+        ("BV_porous", "mm³", biovolume_porous / 10e9),
+        ("porosity", "(%)", porosity * 100),
+        ("substratum_coverage", "(%)", substratum_coverage * 100),
         ("min_height", "µm", min_Hmap),
         ("max_height", "µm", max_Hmap),
         ("mean_height", "µm", mean_Hmap),
@@ -903,8 +948,6 @@ def _calc_metrics(
         ("Ra", "µm", Ra),
         ("Rq", "µm", Rq),
         ("R_coeff", "-", R_coeff),
-        # ("mean_local_volume", "µm³", mean_local_volume),
-        # ("std_local_volume", "µm³", std_local_volume),
     ]
 
     return results
@@ -919,9 +962,6 @@ def _save_or_append_metrics(results, path: Path) -> None:
     )
 
     new_row = pd.DataFrame([values], columns=columns)
-    new_row = new_row.round(
-        {(parameter, unit): 4 if unit == "(%)" else 1 for parameter, unit, _ in results}
-    )
 
     if path.exists():
         df_existing = pd.read_csv(

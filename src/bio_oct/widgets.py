@@ -1311,13 +1311,22 @@ def calculate_metrics_widget(
     spacing = segmentation.metadata.get("spacing")
     assert spacing is not None
 
+    roi_corner_points = segmentation.metadata.get("roi_corner_points", None)
+    if roi_corner_points is not None:
+        roi_corner_points = np.asarray(roi_corner_points, dtype=np.int32).tolist()
+
     fn.calculate_metrics(
         asarray(segmentation.data),
         segmentation.name,
         Path(path),
         asarray(spacing),
         asarray(substratum.data) if substratum is not None else None,
+        roi_corner_points=roi_corner_points,
     )
+
+    record_params = {"spacing": spacing, "path": batch_export_path}
+    if roi_corner_points is not None:
+        record_params["roi_corner_points"] = roi_corner_points
 
     recorder.record(
         function="calculate_metrics",
@@ -1326,7 +1335,7 @@ def calculate_metrics_widget(
             **({"substratum": substratum.name} if substratum is not None else {}),
         },
         output_layer=None,
-        params={"spacing": spacing, "path": batch_export_path},
+        params=record_params,
     )
     p = get_panel()
     if p is not None:
