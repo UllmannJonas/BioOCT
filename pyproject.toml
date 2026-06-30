@@ -1,6 +1,6 @@
 [project]
 name = "bio_oct"
-version = "0.4rc2"
+version = "0.4"
 description = "A napari plugin for analyzing optical coherence tomography (OCT) from biofilm growing on substratum."
 authors = [
   {name = "Andreas Netsch", email = "andreas.netsch@partner.kit.edu"},
