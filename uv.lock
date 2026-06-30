@@ -84,7 +84,7 @@ wheels = [
 
 [[package]]
 name = "bio-oct"
-version = "0.3"
+version = "0.4rc1"
 source = { editable = "." }
 dependencies = [
     { name = "magicgui" },
