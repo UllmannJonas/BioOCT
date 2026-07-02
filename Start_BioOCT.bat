@@ -29,24 +29,29 @@ if errorlevel 1 (
     )
 )
 
-echo.
-echo Preparing the Python environment...
-REM uv will auto install python if not found on system (https://docs.astral.sh/uv/guides/install-python/#viewing-python-installations)
-uv venv --python 3.12
-if errorlevel 1 (
+if exist ".venv\Scripts\python.exe" (
     echo.
-    echo Something went wrong while preparing the environment.
-    echo If the message above mentions "os error 5" or "failed to rename file",
-    echo this is a known issue caused by antivirus software interfering with uv:
-    echo https://github.com/astral-sh/uv/issues/16747
-    echo Try temporarily disabling real-time protection and run this file again.
-    pause
-    exit /b 1
+    echo Environment already exists, skipping creation...
+) else (
+    echo.
+    echo Preparing the Python environment ^(first run only^)...
+    REM uv will auto install python if not found on system (https://docs.astral.sh/uv/guides/install-python/#viewing-python-installations)
+    uv venv --python 3.12
+    if errorlevel 1 (
+        echo.
+        echo Something went wrong while preparing the environment.
+        echo If the message above mentions "os error 5" or "failed to rename file",
+        echo this is a known issue caused by antivirus software interfering with uv:
+        echo https://github.com/astral-sh/uv/issues/16747
+        echo Try temporarily disabling real-time protection and run this file again.
+        pause
+        exit /b 1
+    )
 )
 
 echo.
 echo Installing/updating BioOCT and its requirements...
-uv pip install napari bio-oct napari-nifti pyqt6
+uv pip install -U napari bio-oct napari-nifti pyqt6
 if errorlevel 1 (
     echo.
     echo Installation failed. Please copy the error message above
