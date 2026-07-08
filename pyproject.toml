@@ -10,7 +10,23 @@ authors = [
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.12"
-classifiers = ["Framework :: napari"]
+classifiers = [
+  "Framework :: napari",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Topic :: Scientific/Engineering :: Image Processing",
+  "Intended Audience :: Science/Research",
+]
+keywords = [
+  "napari",
+  "plugin",
+  "biofilm",
+  "optical coherence tomography",
+  "OCT",
+  "image analysis"
+]
 dependencies = [
   "numpy>=2.4.2",
   "magicgui>=0.10.1",
@@ -23,6 +39,12 @@ dependencies = [
   "scikit-image>=0.26.0",
   "tifffile>=2026.2.15",
 ]
+
+[project.urls]
+Homepage = "https://github.com/UllmannJonas/BioOCT"
+Repository = "https://github.com/UllmannJonas/BioOCT"
+Documentation = "https://github.com/UllmannJonas/BioOCT#readme"
+Issues = "https://github.com/UllmannJonas/BioOCT/issues"
 
 [dependency-groups]
 additional = [
