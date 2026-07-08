@@ -64,7 +64,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo Starting BioOCT...
+echo Starting napari with BioOCT plugin...
 ".venv\Scripts\python.exe" -m napari
 
 pause
