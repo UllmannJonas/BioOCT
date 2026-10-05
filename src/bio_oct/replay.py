@@ -178,7 +178,7 @@ def replay_on_batch(
         print(f"\nProcessing: {f.stem}")
 
         try:
-            viewer.open(f, plugin="oct_analysis")
+            viewer.open(f, plugin="bio_oct")
             QApplication.processEvents()
             replay_pipeline(recorder=recorder, viewer=viewer, base_layer_name=f.stem)
         except Exception as e:
