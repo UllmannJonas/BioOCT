@@ -92,7 +92,7 @@ That means:
 
 ### 2.3 Typical Workflow to Make Changes
 
-0. Open console and navigate to `oct_analysis` folder
+0. Open a console in the `BioOCT` repository folder
 1. Start on dev: `git checkout dev`
 2. Get latest changes: `git pull` (do this regularily)
 3. Open/Switch to your feature-branch
