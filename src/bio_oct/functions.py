@@ -117,7 +117,7 @@ def locate_surface(
         raise ValueError("Index out of bounds.")
 
     search = image[:, ymin:ymax, :]
-    valid = np.any(image > 0, axis=1)  # Exclude A-scans with only zeros (roi masked)
+    valid = np.any(search > 0, axis=1)  # Exclude A-scans with no signal in search area
 
     y_coords = np.argmax(search, axis=1)
     y_coords = y_coords + ymin + axial_offset
@@ -936,9 +936,9 @@ def _calc_metrics(
             if isclose(spacing[2], spacing[0], abs_tol=0.00005)
             else "inconsistent",
         ),
-        ("substratum_area", "mm²", substratum_area / 10e6),
-        ("BV_dense", "mm³", biovolume_dense / 10e9),
-        ("BV_porous", "mm³", biovolume_porous / 10e9),
+        ("substratum_area", "mm²", substratum_area / 1e6),
+        ("BV_dense", "mm³", biovolume_dense / 1e9),
+        ("BV_porous", "mm³", biovolume_porous / 1e9),
         ("porosity", "(%)", porosity * 100),
         ("substratum_coverage", "(%)", substratum_coverage * 100),
         ("min_height", "µm", min_Hmap),
