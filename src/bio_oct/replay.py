@@ -1,6 +1,6 @@
 from pathlib import Path
 import inspect
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from .registry import REGISTRY
 from .recorder import PipelineRecorder
@@ -19,11 +19,44 @@ if TYPE_CHECKING:
     import napari.layers
 
 
+class _LayerProperties(TypedDict):
+    affine: Any
+    metadata: dict[str, Any]
+    scale: Any
+    axis_labels: Any
+    units: Any
+
+
+class PipelineReplayError(RuntimeError):
+    def __init__(
+        self,
+        step_index: int,
+        function_name: str,
+        cause: BaseException | None = None,
+    ) -> None:
+        self.step_index = step_index
+        self.function_name = function_name
+        message = f"Pipeline replay failed at step {step_index} ({function_name})"
+        if cause is not None:
+            message += f": {type(cause).__name__}: {cause}"
+        super().__init__(message)
+
+
 def _substitute(name: str | None, base_layer: str) -> str | None:
     """Replace $base placeholder with actual layer name."""
     if name is None:
         return None
     return name.replace(BASE_LAYER_PLACEHOLDER, base_layer)
+
+
+def _layer_properties(layer: "napari.layers.Layer") -> _LayerProperties:
+    return {
+        "affine": layer.affine.affine_matrix if hasattr(layer, "affine") else None,
+        "metadata": dict(layer.metadata) if hasattr(layer, "metadata") else {},
+        "scale": layer.scale if hasattr(layer, "scale") else None,
+        "axis_labels": layer.axis_labels if hasattr(layer, "axis_labels") else None,
+        "units": layer.units if hasattr(layer, "units") else None,
+    }
 
 
 def _resolve_savepath(template: str, layer: "napari.layers.Layer") -> Path:
@@ -44,120 +77,93 @@ def replay_pipeline(
     if base_layer_name is None:
         return
 
-    for step in recorder.steps:
-        func = REGISTRY[step["function"]]
+    for step_position, step in enumerate(recorder.steps, start=1):
+        function_name = str(step.get("function", "<unknown>"))
+        step_index = step.get("step", step_position)
+        try:
+            func = REGISTRY[function_name]
+            input_layer_names = {
+                arg_name: _substitute(layer_name, base_layer_name)
+                for arg_name, layer_name in step["input_layers"].items()
+            }
+            primary_input_name = next(iter(input_layer_names.values()), None)
+            output_name = _substitute(step["output_layer"], base_layer_name)
 
-        inputs = {}
-        for arg_name, layer_name in step["input_layers"].items():
-            # replace $base placeholder if base layer was given
-            if base_layer_name is not None:
-                layer_name = _substitute(layer_name, base_layer_name)
+            inputs = {}
+            for arg_name, layer_name in input_layer_names.items():
+                if layer_name is None:
+                    inputs[arg_name] = None
+                else:
+                    layer = viewer.layers[layer_name]
+                    inputs[arg_name] = layer.data
 
-            if layer_name is None:
-                inputs[arg_name] = None
-            else:
-                layer = viewer.layers[layer_name]
-                inputs[arg_name] = layer.data
-
-        # if path is given, the func will not return data for a new layer
-        # but use that path to save something (Hmap/BVmap/metrics)
-        # and the return value will be None
-        extra = {}
-        if "layername" in inspect.signature(func).parameters:
-            extra["layername"] = base_layer_name
-        if "roi_corner_points" in inspect.signature(func).parameters:
-            if "roi_corner_points" not in step["params"]:
-                # Only inject from metadata if not already in params
-                input_layer_name = _substitute(
-                    next(iter(step["input_layers"].values())), base_layer_name
-                )
-                if input_layer_name is not None:
-                    try:
-                        layer = viewer.layers[input_layer_name]
+            # if path is given, the func will not return data for a new layer
+            # but use that path to save something (Hmap/BVmap/metrics)
+            # and the return value will be None
+            extra = {}
+            if "layername" in inspect.signature(func).parameters:
+                extra["layername"] = base_layer_name
+            if "roi_corner_points" in inspect.signature(func).parameters:
+                if "roi_corner_points" not in step["params"]:
+                    if primary_input_name is not None:
+                        layer = viewer.layers[primary_input_name]
                         roi_points = layer.metadata.get("roi_corner_points")
                         if roi_points is None:
                             roi_points = layer.metadata.get("roi_points")
                         if roi_points is not None:
                             extra["roi_corner_points"] = roi_points
-                    except KeyError:
-                        pass
-        if "path" in step["params"]:
-            resolved_path = _resolve_savepath(
-                step["params"]["path"], viewer.layers[base_layer_name]
-            )
-            result = func(
-                **inputs, **{**step["params"], "path": resolved_path}, **extra
-            )
-        else:
-            result = func(**inputs, **step["params"], **extra)
+            if "path" in step["params"]:
+                resolved_path = _resolve_savepath(
+                    step["params"]["path"], viewer.layers[base_layer_name]
+                )
+                result = func(
+                    **inputs, **{**step["params"], "path": resolved_path}, **extra
+                )
+            else:
+                result = func(**inputs, **step["params"], **extra)
 
-        output_name = step["output_layer"]
-        if base_layer_name is not None:
-            output_name = _substitute(output_name, base_layer_name)
+            if result is None:
+                if output_name is None:
+                    # fn used for side-effect (e.g. saving a file), return=None -> skip layer creation
+                    QApplication.processEvents()
+                    continue
+                raise ValueError("Function returned no data for an output layer")
+            if output_name in [lay.name for lay in viewer.layers]:
+                # layer already exists -> only update layer, skip creation
+                viewer.layers[output_name].data = result
+                viewer.layers[output_name].refresh()
+                QApplication.processEvents()
+                continue
 
-        if result is None and output_name is None:
-            # fn used for side-effect (e.g. saving a file), return=None -> skip layer creation
+            if primary_input_name is None:
+                raise ValueError(
+                    "Cannot create an output layer for a step without a primary input layer"
+                )
+            primary_layer = viewer.layers[primary_input_name]
+            layer_properties = _layer_properties(primary_layer)
+
+            if _is_binary(result):
+                viewer.add_labels(result, name=output_name, **layer_properties)
+            else:
+                viewer.add_image(
+                    result,
+                    name=output_name,
+                    **layer_properties,
+                    contrast_limits=(0, 255),
+                )
+
+            if (
+                function_name == "define_roi"
+                and "roi_corner_points" in step["params"]
+                and output_name is not None
+            ):
+                viewer.layers[output_name].metadata["roi_corner_points"] = step[
+                    "params"
+                ]["roi_corner_points"]
+
             QApplication.processEvents()
-            continue
-        elif output_name in [lay.name for lay in viewer.layers]:
-            # layer already exists -> only update layer, skip creation
-            viewer.layers[output_name].data = result
-            viewer.layers[output_name].refresh()
-            QApplication.processEvents()
-            continue
-
-        primary_input_name = _substitute(
-            next(iter(step["input_layers"].values())), base_layer_name
-        )
-        assert primary_input_name is not None
-        primary_layer = viewer.layers[primary_input_name]
-
-        affine = (
-            primary_layer.affine.affine_matrix
-            if hasattr(primary_layer, "affine")
-            else None
-        )
-        scale = primary_layer.scale if hasattr(primary_layer, "scale") else None
-        axis_labels = (
-            primary_layer.axis_labels if hasattr(primary_layer, "axis_labels") else None
-        )
-        units = primary_layer.units if hasattr(primary_layer, "units") else None
-        metadata = (
-            {**primary_layer.metadata} if hasattr(primary_layer, "metadata") else {}
-        )
-
-        if _is_binary(result):
-            viewer.add_labels(
-                result,
-                name=output_name,
-                affine=affine,
-                metadata=metadata,
-                scale=scale,
-                axis_labels=axis_labels,
-                units=units,
-            )
-        else:
-            viewer.add_image(
-                result,
-                name=output_name,
-                affine=affine,
-                metadata=metadata,
-                scale=scale,
-                axis_labels=axis_labels,
-                units=units,
-                contrast_limits=(0, 255),
-            )
-
-        if (
-            step["function"] == "define_roi"
-            and "roi_corner_points" in step["params"]
-            and output_name is not None
-        ):
-            viewer.layers[output_name].metadata["roi_corner_points"] = step["params"][
-                "roi_corner_points"
-            ]
-
-        QApplication.processEvents()
+        except Exception as exc:
+            raise PipelineReplayError(step_index, function_name, exc) from exc
 
 
 def replay_on_batch(

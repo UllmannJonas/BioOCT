@@ -22,6 +22,7 @@ def _normalize_for_yaml(value):
     return value
 
 
+# TODO: make steps a TypedDict with function, input_layers, output_layer, params
 class PipelineRecorder:
     def __init__(self) -> None:
         self.steps: list[dict] = []
