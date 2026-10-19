@@ -35,8 +35,8 @@ from scipy.interpolate import griddata
 from skimage import morphology
 
 # local imports
-from .registry import register
-from .constants import Fn, THRESHOLD_METHODS
+from .registry import register, store_roi_metadata
+from .constants import THRESHOLD_METHODS
 
 # endregion IMPORTS
 
@@ -44,7 +44,7 @@ from .constants import Fn, THRESHOLD_METHODS
 # -----------------------------------------------------------------------
 # --- Processing functions --------------------------------------------------
 # region FUNCTIONS
-@register("define_roi")
+@register(output="image", after=store_roi_metadata)
 def define_roi(
     image: np.ndarray,
     roi_corner_points: list[tuple[int, int]] | np.ndarray,
@@ -63,7 +63,7 @@ def define_roi(
     return roi_image
 
 
-@register(Fn.MEDIAN_FILTER)
+@register(output="image")
 def median_filter(image: np.ndarray, kernel_size: int = 1) -> np.ndarray:
     _is_uint8(image)
 
@@ -73,7 +73,7 @@ def median_filter(image: np.ndarray, kernel_size: int = 1) -> np.ndarray:
     return filtered
 
 
-@register("gaussian_filter")
+@register(output="image")
 def gaussian_filter(image: np.ndarray, sigma: float = 0.0) -> np.ndarray:
     _is_uint8(image)
 
@@ -85,7 +85,7 @@ def gaussian_filter(image: np.ndarray, sigma: float = 0.0) -> np.ndarray:
     return filtered
 
 
-@register("sobel_filter")
+@register(output="image")
 def sobel_filter(image: np.ndarray) -> np.ndarray:
     _is_uint8(image)
 
@@ -100,7 +100,7 @@ def sobel_filter(image: np.ndarray) -> np.ndarray:
     return magnitude
 
 
-@register("locate_surface")
+@register(output="labels")
 def locate_surface(
     image: np.ndarray,
     upper_bound: int,
@@ -125,7 +125,7 @@ def locate_surface(
     return _map_coords_to3D(y_coords, image.shape, color_id, valid=valid)
 
 
-@register("remove_small_objects")
+@register(output="labels")
 def remove_small_objects(labels: np.ndarray, max_object_size: int = 0) -> np.ndarray:
     color_id = _get_color_id(labels)
 
@@ -142,7 +142,7 @@ def remove_small_objects(labels: np.ndarray, max_object_size: int = 0) -> np.nda
     return output
 
 
-@register("interpolate_gaps")
+@register(output="labels", context=("roi_corner_points",))
 def interpolate_gaps(
     surface: np.ndarray,
     roi_corner_points: list[tuple[int, int]] | np.ndarray | None = None,
@@ -215,7 +215,7 @@ def interpolate_gaps(
     return _map_coords_to3D(surface_2D, shape_3D, color_id, valid=in_roi)
 
 
-@register("zero_out_area")
+@register(output="image")
 def zero_out_area(
     image: np.ndarray, surface_coords: np.ndarray, direction: Literal["above", "below"]
 ) -> np.ndarray:
@@ -238,7 +238,7 @@ def zero_out_area(
     return copy
 
 
-@register("replace_reflection")
+@register(output="image")
 def replace_reflection(
     image: np.ndarray,
     reflection: np.ndarray,
@@ -270,7 +270,7 @@ def replace_reflection(
     return result
 
 
-@register("untilt")
+@register(output="image")
 def untilt(image: np.ndarray, substratum_coords: np.ndarray | None) -> np.ndarray:
     if substratum_coords is None:
         return image
@@ -291,7 +291,7 @@ def untilt(image: np.ndarray, substratum_coords: np.ndarray | None) -> np.ndarra
     return untilted
 
 
-@register("enhance_contrast")
+@register(output="image")
 def enhance_contrast(
     image: np.ndarray,
     method: Literal["gamma", "clip", "clahe"],
@@ -336,7 +336,7 @@ def enhance_contrast(
     return _convert_to_8bit(copy)
 
 
-@register("threshold")
+@register(output="labels")
 def threshold(
     image: np.ndarray,
     method: str,  # choices set in THRESHOLD_METHODS
@@ -368,7 +368,7 @@ def threshold(
     return binary * color_id
 
 
-@register("export_to_tiff")
+@register(output=None)
 def export_to_tiff(image: np.ndarray, spacing: np.ndarray, path: Path) -> None:
     bscans_spacing = spacing[0] * 1000.0
     lateral_res = 1.0 / (spacing[2] * 1000)
@@ -402,7 +402,7 @@ def export_to_tiff(image: np.ndarray, spacing: np.ndarray, path: Path) -> None:
     )
 
 
-@register("export_to_nifti")
+@register(output=None)
 def export_to_nifti(image: np.ndarray, affine: np.ndarray, path: Path) -> None:
     # remove .gz so that path.stem works correctly
     tmp_path = Path(str(path).replace(".gz", ""))
@@ -419,7 +419,7 @@ def export_to_nifti(image: np.ndarray, affine: np.ndarray, path: Path) -> None:
     nifti.save(path)
 
 
-@register("create_height_map")
+@register(output=None)
 def create_height_map(
     segmentation: np.ndarray,
     substratum: np.ndarray | None = None,
@@ -462,7 +462,7 @@ def create_height_map(
         fig.savefig(path, dpi=1200)
 
 
-@register("create_bv_map")
+@register(output=None)
 def create_bv_map(
     segmentation: np.ndarray,
     substratum: np.ndarray | None = None,
@@ -505,7 +505,10 @@ def create_bv_map(
         fig.savefig(path, dpi=1200)
 
 
-@register("calculate_metrics")
+@register(
+    output=None,
+    context=("layername", "roi_corner_points"),
+)
 def calculate_metrics(
     segmentation: np.ndarray,
     layername: str,

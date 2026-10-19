@@ -1,10 +1,8 @@
 from pathlib import Path
-import inspect
 from typing import TYPE_CHECKING, Any, TypedDict
 
 from .registry import REGISTRY
 from .recorder import PipelineRecorder
-from .functions import _is_binary
 from qtpy.QtWidgets import QApplication
 from tqdm import tqdm
 
@@ -81,7 +79,8 @@ def replay_pipeline(
         function_name = str(step.get("function", "<unknown>"))
         step_index = step.get("step", step_position)
         try:
-            func = REGISTRY[function_name]
+            spec = REGISTRY[function_name]
+            func = spec.func
             input_layer_names = {
                 arg_name: _substitute(layer_name, base_layer_name)
                 for arg_name, layer_name in step["input_layers"].items()
@@ -97,69 +96,65 @@ def replay_pipeline(
                     layer = viewer.layers[layer_name]
                     inputs[arg_name] = layer.data
 
-            # if path is given, the func will not return data for a new layer
-            # but use that path to save something (Hmap/BVmap/metrics)
-            # and the return value will be None
-            extra = {}
-            if "layername" in inspect.signature(func).parameters:
-                extra["layername"] = base_layer_name
-            if "roi_corner_points" in inspect.signature(func).parameters:
-                if "roi_corner_points" not in step["params"]:
-                    if primary_input_name is not None:
+            context = {}
+            for context_name in spec.context:
+                if context_name == "layername":
+                    context[context_name] = base_layer_name
+                elif context_name == "roi_corner_points":
+                    if (
+                        context_name not in step["params"]
+                        and primary_input_name is not None
+                    ):
                         layer = viewer.layers[primary_input_name]
                         roi_points = layer.metadata.get("roi_corner_points")
                         if roi_points is None:
                             roi_points = layer.metadata.get("roi_points")
                         if roi_points is not None:
-                            extra["roi_corner_points"] = roi_points
-            if "path" in step["params"]:
-                resolved_path = _resolve_savepath(
-                    step["params"]["path"], viewer.layers[base_layer_name]
-                )
-                result = func(
-                    **inputs, **{**step["params"], "path": resolved_path}, **extra
-                )
-            else:
-                result = func(**inputs, **step["params"], **extra)
+                            context[context_name] = roi_points
+                else:
+                    raise ValueError(f"Unsupported replay context: {context_name}")
 
-            if result is None:
-                if output_name is None:
-                    # fn used for side-effect (e.g. saving a file), return=None -> skip layer creation
-                    QApplication.processEvents()
-                    continue
-                raise ValueError("Function returned no data for an output layer")
-            if output_name in [lay.name for lay in viewer.layers]:
-                # layer already exists -> only update layer, skip creation
-                viewer.layers[output_name].data = result
-                viewer.layers[output_name].refresh()
+            kwargs = {**inputs, **context, **step["params"]}
+            if "path" in kwargs:
+                resolved_path = _resolve_savepath(
+                    kwargs["path"], viewer.layers[base_layer_name]
+                )
+                kwargs["path"] = resolved_path
+            result = func(**kwargs)
+
+            if spec.output is None:
                 QApplication.processEvents()
                 continue
+            if result is None:
+                raise ValueError("Function returned no data for an output layer")
 
-            if primary_input_name is None:
-                raise ValueError(
-                    "Cannot create an output layer for a step without a primary input layer"
-                )
-            primary_layer = viewer.layers[primary_input_name]
-            layer_properties = _layer_properties(primary_layer)
-
-            if _is_binary(result):
-                viewer.add_labels(result, name=output_name, **layer_properties)
+            if output_name in [lay.name for lay in viewer.layers]:
+                output_layer = viewer.layers[output_name]
+                output_layer.data = result
+                if spec.after is not None:
+                    spec.after(output_layer, step["params"])
+                output_layer.refresh()
             else:
-                viewer.add_image(
-                    result,
-                    name=output_name,
-                    **layer_properties,
-                    contrast_limits=(0, 255),
-                )
+                if primary_input_name is None:
+                    raise ValueError(
+                        "Cannot create an output layer for a step without a primary input layer"
+                    )
+                primary_layer = viewer.layers[primary_input_name]
+                layer_properties = _layer_properties(primary_layer)
 
-            if (
-                function_name == "define_roi"
-                and "roi_corner_points" in step["params"]
-                and output_name is not None
-            ):
-                viewer.layers[output_name].metadata["roi_corner_points"] = step[
-                    "params"
-                ]["roi_corner_points"]
+                if spec.output == "labels":
+                    output_layer = viewer.add_labels(
+                        result, name=output_name, **layer_properties
+                    )
+                else:
+                    output_layer = viewer.add_image(
+                        result,
+                        name=output_name,
+                        **layer_properties,
+                        contrast_limits=(0, 255),
+                    )
+                if spec.after is not None:
+                    spec.after(output_layer, step["params"])
 
             QApplication.processEvents()
         except Exception as exc:
