@@ -22,7 +22,6 @@ from qtpy.QtWidgets import (
 
 # Local imports
 from . import functions as fn
-from .functions import THRESHOLD_METHODS
 from .recorder import recorder
 from .output_paths import resolve_output_path
 from .naming import derive_name
@@ -30,6 +29,7 @@ from .panel import get_panel
 from .constants import (
     TOOLTIPS,
     COLORMAP,
+    THRESHOLD_METHODS,
 )
 
 if TYPE_CHECKING:
@@ -307,7 +307,7 @@ class LocateSurfaceWidget(QWidget):
             lay.data = search_area
             lay.refresh()
         else:
-            lay = self.viewer.add_labels(
+            lay = self.viewer.add_labels(  # type: ignore[attr-defined]
                 search_area,
                 name="_search_window",
                 affine=image_layer.affine.affine_matrix,
@@ -348,7 +348,7 @@ class LocateSurfaceWidget(QWidget):
             lay.data = coords
             lay.refresh()
         else:
-            lay = self.viewer.add_labels(
+            lay = self.viewer.add_labels(  # type: ignore[attr-defined]
                 coords,
                 affine=image_layer.affine.affine_matrix,
                 name=output_name,
@@ -486,7 +486,7 @@ class DefineRoiWidget(QWidget):
             lay.data = preview
             lay.refresh()
         else:
-            self.viewer.add_labels(
+            self.viewer.add_labels(  # type: ignore[attr-defined]
                 preview,
                 name="_roi_preview",
                 affine=image_layer.affine.affine_matrix,
@@ -1043,7 +1043,7 @@ class ThresholdWidget(QWidget):
             lay.data = data
             lay.refresh()
         else:
-            self.viewer.add_labels(
+            self.viewer.add_labels(  # type: ignore[attr-defined]
                 data,
                 name=output_name,
                 affine=image_layer.affine.affine_matrix,

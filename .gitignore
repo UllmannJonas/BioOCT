@@ -1,16 +1,6 @@
 # Created by https://www.toptal.com/developers/gitignore/api/python
 # Edit at https://www.toptal.com/developers/gitignore?templates=python
 
-local/
-
-# OCTViewer build files
-src/octviewer/build/
-*.spec
-*.exe
-
-# VSCode settings
-.vscode/
-
 # ML: logs and model-checkpoints
 *.txt
 *.pth

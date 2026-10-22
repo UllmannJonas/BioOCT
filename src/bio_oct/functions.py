@@ -16,23 +16,20 @@ Pipeline Contract:
         So if the input image is from a "labels" layer (binary) it should output that format.
 """
 
+from __future__ import annotations
+
 # region IMPORTS
 # python native imports
-from typing import Literal
+from functools import cache
+from typing import TYPE_CHECKING, Any, Callable, Literal
 from pathlib import Path
-import tifffile as tiff
 from math import isclose
 
-# third party imports
-import cv2
-from medvol import MedVol
-import matplotlib.pyplot as plt
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
 import numpy as np
-import pandas as pd
-from scipy.interpolate import griddata
-from skimage import morphology
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
 
 # local imports
 from .registry import register, store_roi_metadata
@@ -65,6 +62,8 @@ def define_roi(
 
 @register(output="image")
 def median_filter(image: np.ndarray, kernel_size: int = 1) -> np.ndarray:
+    import cv2
+
     _is_uint8(image)
 
     filtered = np.empty_like(image)
@@ -75,6 +74,8 @@ def median_filter(image: np.ndarray, kernel_size: int = 1) -> np.ndarray:
 
 @register(output="image")
 def gaussian_filter(image: np.ndarray, sigma: float = 0.0) -> np.ndarray:
+    import cv2
+
     _is_uint8(image)
 
     filtered = np.empty_like(image)
@@ -87,6 +88,8 @@ def gaussian_filter(image: np.ndarray, sigma: float = 0.0) -> np.ndarray:
 
 @register(output="image")
 def sobel_filter(image: np.ndarray) -> np.ndarray:
+    import cv2
+
     _is_uint8(image)
 
     magnitude = np.zeros_like(image, dtype=np.float32)
@@ -127,6 +130,8 @@ def locate_surface(
 
 @register(output="labels")
 def remove_small_objects(labels: np.ndarray, max_object_size: int = 0) -> np.ndarray:
+    from skimage import morphology
+
     color_id = _get_color_id(labels)
 
     b_scans = labels.shape[0]
@@ -147,6 +152,8 @@ def interpolate_gaps(
     surface: np.ndarray,
     roi_corner_points: list[tuple[int, int]] | np.ndarray | None = None,
 ) -> np.ndarray:
+    from scipy.interpolate import griddata
+
     color_id = _get_color_id(surface)
     shape_3D = surface.shape
 
@@ -301,6 +308,8 @@ def enhance_contrast(
     clahe_clip_limit: float = 2.0,
     clahe_tile_size: int = 8,
 ) -> np.ndarray:
+    import cv2
+
     _is_uint8(image)
 
     copy = image.copy()
@@ -318,13 +327,26 @@ def enhance_contrast(
 
     elif method == "clip":
         # ignore zero values for percentile calc
-        mask = copy > 0
-        non_zero = copy[mask]
-        low = np.percentile(non_zero, clip_low_pct)
-        high = np.percentile(non_zero, clip_high_pct)
-        copy = np.clip(copy, low, high)
-        copy = (copy - low) / (high - low) * 255  # rescale to full range
-        copy[~mask] = 0  # set zero values back to zero after clipping
+        hist = np.bincount(image.ravel(), minlength=256)
+        hist[0] = 0
+        cumulative = np.cumsum(hist)
+        total = cumulative[-1]
+
+        low = int(np.searchsorted(cumulative, total * (clip_low_pct / 100.0)))
+        high = int(np.searchsorted(cumulative, total * (clip_high_pct / 100.0)))
+        if high <= low:
+            raise ValueError(
+                f"Invalid clip percentiles: low={clip_low_pct}, high={clip_high_pct}. "
+                "Ensure that low < high and that the image has sufficient dynamic range."
+            )
+
+        lut = (
+            np.clip((np.arange(256, dtype=np.float32) - low) / (high - low), 0, 1) * 255
+        )
+        lut = lut.astype(np.uint8)
+        lut[0] = 0
+
+        return lut[image]
 
     elif method == "clahe":
         clahe = cv2.createCLAHE(
@@ -350,6 +372,9 @@ def threshold(
         binary = (image > t).astype(np.uint8)
         return binary * color_id
 
+    if method not in THRESHOLD_METHODS:
+        raise ValueError(f"Unknown threshold method: {method}")
+
     # ignore black/white pixels as selected
     values = image.flatten()
     if ignore_black:
@@ -363,13 +388,15 @@ def threshold(
             raise ValueError(f"Unsupported image dtype ({image.dtype}).")
 
     # calc threshold
-    t = float(THRESHOLD_METHODS[method](values))
+    t = float(_threshold_methods()[method](values))
     binary = (image.copy() > t).astype(np.uint8)
     return binary * color_id
 
 
 @register(output=None)
 def export_to_tiff(image: np.ndarray, spacing: np.ndarray, path: Path) -> None:
+    import tifffile as tiff
+
     bscans_spacing = spacing[0] * 1000.0
     lateral_res = 1.0 / (spacing[2] * 1000)
     axial_res = 1.0 / (spacing[1] * 1000)
@@ -404,6 +431,8 @@ def export_to_tiff(image: np.ndarray, spacing: np.ndarray, path: Path) -> None:
 
 @register(output=None)
 def export_to_nifti(image: np.ndarray, affine: np.ndarray, path: Path) -> None:
+    from medvol import MedVol
+
     # remove .gz so that path.stem works correctly
     tmp_path = Path(str(path).replace(".gz", ""))
 
@@ -431,6 +460,8 @@ def create_height_map(
     axes: bool = False,
     path: Path | None = None,
 ) -> None:
+    import matplotlib.pyplot as plt
+
     height_map = _calc_height_map(
         binary=segmentation,
         substratum=substratum,
@@ -474,6 +505,8 @@ def create_bv_map(
     axes: bool = False,
     path: Path | None = None,
 ) -> None:
+    import matplotlib.pyplot as plt
+
     bv_map = _calc_bv_map(
         binary=segmentation,
         substratum=substratum,
@@ -535,9 +568,20 @@ def calculate_metrics(
 # --- Helper functions --------------------------------------------------
 # region HELPERS
 def _convert_to_8bit(image: np.ndarray) -> np.ndarray:
-    image = (image - image.min()) / (image.max() - image.min())
+    lo = float(image.min())
+    hi = float(image.max())
+    converted = np.zeros(image.shape, dtype=np.uint8)
+    if hi == lo:
+        return converted
 
-    converted = (image * 255).astype(np.uint8)
+    scale = hi - lo
+    for i in range(image.shape[0]):
+        tmp = image[i].astype(np.float32)
+        tmp -= lo
+        tmp /= scale
+        tmp *= 255.0
+        converted[i] = tmp.astype(np.uint8)
+
     return converted
 
 
@@ -545,6 +589,8 @@ def _roi_to_volume(
     points: list[tuple[int, int]] | np.ndarray,
     shape: tuple[int, ...],
 ) -> np.ndarray:
+    import cv2
+
     points = np.asarray(points, dtype=np.int32)
     if points.shape != (4, 2):
         raise ValueError(
@@ -593,19 +639,24 @@ def _vizualize_search_area(
     return area
 
 
-def _is_binary(binary_stack: np.ndarray) -> bool:
-    unique_vals = np.unique(binary_stack, sorted=True).tolist()
-    if not unique_vals[0] == 0 or len(unique_vals) > 2:
-        return False
+def _present_values(a: np.ndarray) -> np.ndarray:
+    counts = np.zeros(256, np.int64)
+    for b in a:
+        counts += np.bincount(b.reshape(-1), minlength=256)
+    return np.flatnonzero(counts)
 
-    return True
+
+def _is_binary(binary_stack: np.ndarray) -> bool:
+    present = _present_values(binary_stack)
+    return len(present) <= 2 and present[0] == 0
 
 
 def _get_color_id(binary_stack: np.ndarray) -> int:
-    if not _is_binary(binary_stack):
-        raise ValueError("input stack is not binary.")
+    present = _present_values(binary_stack)
+    if not (len(present) <= 2 and present[0] == 0):
+        raise ValueError("Input stack is not binary.")
 
-    return int(np.unique(binary_stack)[-1])
+    return int(present[-1])
 
 
 def _is_same_shape(stackA: np.ndarray, stackB: np.ndarray) -> None:
@@ -652,14 +703,37 @@ def _calc_thresholds(
         else:
             if m not in THRESHOLD_METHODS:
                 raise ValueError(f"Unknown threshold method: {m}")
-            thresholds[m] = float(THRESHOLD_METHODS[m](values))
+            thresholds[m] = float(_threshold_methods()[m](values))
 
     return thresholds
+
+
+@cache
+def _threshold_methods() -> dict[str, Callable[..., Any]]:
+    from skimage.filters.thresholding import (
+        threshold_isodata,
+        threshold_li,
+        threshold_mean,
+        threshold_otsu,
+        threshold_triangle,
+        threshold_yen,
+    )
+
+    return {
+        "otsu": threshold_otsu,
+        "yen": threshold_yen,
+        "li": threshold_li,
+        "mean": threshold_mean,
+        "isodata": threshold_isodata,
+        "triangle": threshold_triangle,
+    }
 
 
 def _plot_thresholds(
     image: np.ndarray, thresholds: dict[str, float], b_idx: int
 ) -> None:
+    import matplotlib.pyplot as plt
+
     n = len(thresholds)
     fig, axes = plt.subplots(1, n, figsize=(4 * n, 4), squeeze=False)
     axes = axes[0]
@@ -706,6 +780,8 @@ def _plot_height_map(
     scalebar: bool = False,
     axes: bool = False,
 ) -> Figure:
+    import matplotlib.pyplot as plt
+
     fig, ax = plt.subplots(constrained_layout=True)
     fig.set_dpi(1200)
 
@@ -778,6 +854,8 @@ def _plot_bv_map(
     scalebar: bool = False,
     axes: bool = False,
 ) -> Figure:
+    import matplotlib.pyplot as plt
+
     fig, ax = plt.subplots(constrained_layout=True)
     fig.set_dpi(1200)
 
@@ -957,6 +1035,8 @@ def _calc_metrics(
 
 
 def _save_or_append_metrics(results, path: Path) -> None:
+    import pandas as pd
+
     """Save metrics on first call, append on subsequent calls."""
     parameters, units, values = zip(*results)
 
@@ -988,6 +1068,8 @@ def _save_or_append_metrics(results, path: Path) -> None:
 
 
 def _reconstruct_substratum(binary_image: np.ndarray) -> np.ndarray:
+    from scipy.interpolate import griddata
+
     """Finds the substratum in a binary image by retrieving the lowest non-zero pixel"""
     if not _is_binary(binary_image):
         raise ValueError("Input image is not binary")

@@ -48,13 +48,13 @@ Issues = "https://github.com/UllmannJonas/BioOCT/issues"
 
 [dependency-groups]
 additional = [
-    "napari==0.7.0",
+    "napari>=0.7.0",
     "pyqt6>=6.10.2",
 ]
 dev = [
-    "ruff==0.15.1",
-    "uv==0.10.2",
-    "pre-commit==4.5.1",
+    "ruff>=0.15.1",
+    "uv>=0.10.2",
+    "pre-commit>=4.5.1",
     "pyright>=1.1.407",
     "pytest>=9.1.0",
     {include-group = "additional"},
