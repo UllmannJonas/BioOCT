@@ -1,8 +1,10 @@
 from pathlib import Path
+import tempfile
 from typing import TYPE_CHECKING, Any, TypedDict
 
 from .registry import REGISTRY
 from .recorder import PipelineRecorder
+from .output_paths import resolve_output_path
 from qtpy.QtWidgets import QApplication
 from tqdm import tqdm
 
@@ -43,8 +45,10 @@ class PipelineReplayError(RuntimeError):
 def _substitute(name: str | None, base_layer: str) -> str | None:
     """Replace $base placeholder with actual layer name."""
     if name is None:
-        return None
-    return name.replace(BASE_LAYER_PLACEHOLDER, base_layer)
+        return name
+    if name == BASE_LAYER_PLACEHOLDER or name.startswith(f"{BASE_LAYER_PLACEHOLDER}_"):
+        return f"{base_layer}{name[len(BASE_LAYER_PLACEHOLDER) :]}"
+    return name
 
 
 def _layer_properties(layer: "napari.layers.Layer") -> _LayerProperties:
@@ -57,23 +61,75 @@ def _layer_properties(layer: "napari.layers.Layer") -> _LayerProperties:
     }
 
 
-def _resolve_savepath(template: str, layer: "napari.layers.Layer") -> Path:
-    meta = layer.metadata if hasattr(layer, "metadata") else {}
-    source_dir = str(meta.get("source_dir", Path.home()))
-    layer_name = layer.name if hasattr(layer, "name") else "unknown_layer"
-    resolved = template.replace(SOURCE_DIR_PLACEHOLDER, source_dir).replace(
+def validate_output_folder(output_folder: Path | None) -> None:
+    if output_folder is None:
+        return
+    if not output_folder.exists() or not output_folder.is_dir():
+        raise ValueError(f"Output folder does not exist: {output_folder}")
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix=".bio_oct_write_test_", dir=output_folder
+        ):
+            pass
+    except OSError as exc:
+        raise ValueError(f"Output folder is not writable: {output_folder}") from exc
+
+
+def _source_directory(
+    layer: "napari.layers.Layer",
+    base_layer: "napari.layers.Layer",
+) -> Path:
+    layer_metadata = layer.metadata if hasattr(layer, "metadata") else {}
+    base_metadata = base_layer.metadata if hasattr(base_layer, "metadata") else {}
+    source_dir = layer_metadata.get(
+        "source_dir", base_metadata.get("source_dir", Path.home())
+    )
+    return Path(source_dir)
+
+
+def _resolve_savepath(
+    path: str,
+    base_layer: "napari.layers.Layer",
+    output_folder: Path | None,
+) -> Path:
+    source_dir = str(
+        output_folder
+        if output_folder is not None
+        else _source_directory(base_layer, base_layer)
+    )
+    layer_name = base_layer.name if hasattr(base_layer, "name") else "unknown_layer"
+    resolved = path.replace(SOURCE_DIR_PLACEHOLDER, source_dir).replace(
         LAYER_NAME_PLACEHOLDER, layer_name
     )
     return Path(resolved)
+
+
+def _resolve_output_filename(
+    filename: str,
+    input_layer_objects: dict[str, "napari.layers.Layer"],
+    base_layer: "napari.layers.Layer",
+    output_folder: Path | None,
+) -> Path:
+    # File-producing steps put their primary data layer first; remaining inputs are supporting layers.
+    input_layer = next(iter(input_layer_objects.values()), base_layer)
+    destination = (
+        output_folder
+        if output_folder is not None
+        else _source_directory(input_layer, base_layer)
+    )
+    return resolve_output_path(filename, input_layer, destination)
 
 
 def replay_pipeline(
     recorder: PipelineRecorder,
     viewer: "napari.viewer.Viewer",
     base_layer_name: str | None = None,
+    output_folder: Path | None = None,
 ) -> None:
     if base_layer_name is None:
         return
+    validate_output_folder(output_folder)
 
     for step_position, step in enumerate(recorder.steps, start=1):
         function_name = str(step.get("function", "<unknown>"))
@@ -89,11 +145,13 @@ def replay_pipeline(
             output_name = _substitute(step["output_layer"], base_layer_name)
 
             inputs = {}
+            input_layer_objects = {}
             for arg_name, layer_name in input_layer_names.items():
                 if layer_name is None:
                     inputs[arg_name] = None
                 else:
                     layer = viewer.layers[layer_name]
+                    input_layer_objects[arg_name] = layer
                     inputs[arg_name] = layer.data
 
             context = {}
@@ -114,10 +172,33 @@ def replay_pipeline(
                 else:
                     raise ValueError(f"Unsupported replay context: {context_name}")
 
-            kwargs = {**inputs, **context, **step["params"]}
-            if "path" in kwargs:
+            params = step["params"]
+            if "path" in params and "output_filename" in params:
+                raise ValueError(
+                    "A pipeline step cannot contain both 'path' and "
+                    "'output_filename' parameters"
+                )
+            kwargs = {**inputs, **context, **params}
+            if "output_filename" in kwargs:
+                output_filename = kwargs.pop("output_filename")
+                if not isinstance(output_filename, str):
+                    raise ValueError(
+                        "'output_filename' must be a string filename template"
+                    )
+                base_layer = viewer.layers[base_layer_name]
+                kwargs["path"] = _resolve_output_filename(
+                    output_filename,
+                    input_layer_objects,
+                    base_layer,
+                    output_folder,
+                )
+            elif "path" in kwargs:
+                path_template = kwargs["path"]
+                if not isinstance(path_template, str):
+                    raise ValueError("Legacy 'path' parameter must be a string")
+                base_layer = viewer.layers[base_layer_name]
                 resolved_path = _resolve_savepath(
-                    kwargs["path"], viewer.layers[base_layer_name]
+                    path_template, base_layer, output_folder
                 )
                 kwargs["path"] = resolved_path
             result = func(**kwargs)
@@ -162,8 +243,12 @@ def replay_pipeline(
 
 
 def replay_on_batch(
-    recorder: PipelineRecorder, viewer: "napari.viewer.Viewer", source_folder: Path
+    recorder: PipelineRecorder,
+    viewer: "napari.viewer.Viewer",
+    source_folder: Path,
+    output_folder: Path | None = None,
 ) -> None:
+    validate_output_folder(output_folder)
     print()
     print("#" * 20)
     print("Batch Pipeline Replay started...")
@@ -181,7 +266,12 @@ def replay_on_batch(
         try:
             viewer.open(f, plugin="bio_oct")
             QApplication.processEvents()
-            replay_pipeline(recorder=recorder, viewer=viewer, base_layer_name=f.stem)
+            replay_pipeline(
+                recorder=recorder,
+                viewer=viewer,
+                base_layer_name=f.stem,
+                output_folder=output_folder,
+            )
         except Exception as e:
             errors.append({"file": f, "error": e})
             print("=" * 10)

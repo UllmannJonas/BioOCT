@@ -14,6 +14,7 @@ from qtpy.QtWidgets import (
     QLabel,
     QLineEdit,
     QGroupBox,
+    QMessageBox,
 )
 from qtpy.QtGui import QFont
 from .recorder import recorder
@@ -102,6 +103,31 @@ class PipelineManager(QWidget):
         self.replay_batch_btn = QPushButton("▶▶ Replay Batch")
         self.replay_batch_btn.clicked.connect(self._on_replay_batch)
 
+        # --- Optional Replay Output Folder ---
+        output_group = QGroupBox("Replay Output")
+        output_layout = QVBoxLayout()
+
+        self.output_folder_edit = QLineEdit()
+        self.output_folder_edit.setPlaceholderText("Dataset source folder (default)")
+        self.output_folder_edit.setReadOnly(True)
+
+        self.output_folder_browse_btn = QPushButton("📁 Browse")
+        self.output_folder_browse_btn.clicked.connect(self._on_output_folder_browse)
+        self.output_folder_clear_btn = QPushButton("Use default")
+        self.output_folder_clear_btn.clicked.connect(self.output_folder_edit.clear)
+        self.output_folder_clear_btn.setEnabled(False)
+        self.output_folder_edit.textChanged.connect(
+            lambda text: self.output_folder_clear_btn.setEnabled(bool(text))
+        )
+
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(self.output_folder_browse_btn)
+        btn_row.addWidget(self.output_folder_clear_btn)
+
+        output_layout.addWidget(self.output_folder_edit)
+        output_layout.addLayout(btn_row)
+        output_group.setLayout(output_layout)
+
         batch_layout.addLayout(folder_row)
         batch_layout.addWidget(self.replay_batch_btn)
         batch_group.setLayout(batch_layout)
@@ -112,6 +138,7 @@ class PipelineManager(QWidget):
         layout.addWidget(self.text_view)
         layout.addLayout(io_row)
         layout.addLayout(edit_row)
+        layout.addWidget(output_group)
         layout.addWidget(single_group)
         layout.addWidget(batch_group)
         self.setLayout(layout)
@@ -136,7 +163,7 @@ class PipelineManager(QWidget):
     def refresh(self):
         self.text_view.setPlainText(
             yaml.dump(
-                {"created with": recorder._base_name, "pipeline": recorder.steps},
+                {"pipeline": recorder.steps},
                 allow_unicode=True,
                 sort_keys=False,
             )
@@ -172,12 +199,29 @@ class PipelineManager(QWidget):
         from .replay import replay_pipeline
 
         base_layer = self.layer_combo.currentText() or None
-        replay_pipeline(recorder, self.viewer, base_layer_name=base_layer)
+        try:
+            replay_pipeline(
+                recorder,
+                self.viewer,
+                base_layer_name=base_layer,
+                output_folder=self._selected_output_folder(),
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "Invalid output folder", str(exc))
 
     def _on_batch_browse(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Folder with .oct Files")
         if folder:
             self.batch_folder_edit.setText(folder)
+
+    def _on_output_folder_browse(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Replay Output Folder")
+        if folder:
+            self.output_folder_edit.setText(folder)
+
+    def _selected_output_folder(self) -> Path | None:
+        folder = self.output_folder_edit.text().strip()
+        return Path(folder) if folder else None
 
     def _on_replay_batch(self):
         from .replay import replay_on_batch
@@ -185,7 +229,15 @@ class PipelineManager(QWidget):
         folder_str = self.batch_folder_edit.text().strip()
         if not folder_str:
             return
-        replay_on_batch(recorder, self.viewer, Path(folder_str))
+        try:
+            replay_on_batch(
+                recorder,
+                self.viewer,
+                Path(folder_str),
+                output_folder=self._selected_output_folder(),
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "Invalid output folder", str(exc))
 
 
 panel = None

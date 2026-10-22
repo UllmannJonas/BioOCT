@@ -1,6 +1,6 @@
 # region IMPORTS
 # Python native imports
-from typing import Literal, cast, TYPE_CHECKING
+from typing import Any, Callable, Literal, cast, TYPE_CHECKING
 from pathlib import Path
 import json
 
@@ -24,11 +24,10 @@ from qtpy.QtWidgets import (
 from . import functions as fn
 from .functions import THRESHOLD_METHODS
 from .recorder import recorder
+from .output_paths import resolve_output_path
+from .naming import derive_name
 from .panel import get_panel
 from .constants import (
-    Fn,
-    SOURCE_DIR_PLACEHOLDER,
-    LAYER_NAME_PLACEHOLDER,
     TOOLTIPS,
     COLORMAP,
 )
@@ -38,6 +37,31 @@ if TYPE_CHECKING:
     import napari.types
     import napari.viewer
 # endregion IMPORTS
+
+
+def _run_and_record_action(
+    func: Callable[..., Any],
+    inputs: dict[str, Any],
+    input_layers: dict[str, str | None],
+    output_layer: str | None,
+    params: dict[str, Any],
+    resolve_path: Callable[[str], Path] | None = None,
+) -> Any:
+    """Run and record an action; inputs = runtime-only kwargs, params = recorded kwargs."""
+    run_params = dict(params)
+    if resolve_path is not None:
+        run_params["path"] = resolve_path(run_params.pop("output_filename"))
+    result = func(**inputs, **run_params)
+    recorder.record(
+        function=func.__name__,
+        input_layers=input_layers,
+        output_layer=output_layer,
+        params=params,
+    )
+    panel = get_panel()
+    if panel is not None:
+        panel.refresh()
+    return result
 
 
 # region WIDGETS
@@ -61,23 +85,16 @@ def median_filter_widget(
     The 'size' parameter determines the size of the neighborhood (must be odd so it has a single center pixel).
     Median filters are effective at removing noise while preserving edges.
     """
-    data = fn.median_filter(asarray(image.data), kernel_size)
+    output_name = derive_name(image.name, "median")
 
-    if "median" in image.name:
-        output_name = image.name
-    else:
-        output_name = f"{image.name}_median"
-
-    # Recording
-    recorder.record(
-        function=Fn.MEDIAN_FILTER,
+    params = {"kernel_size": kernel_size}
+    data = _run_and_record_action(
+        func=fn.median_filter,
+        inputs={"image": asarray(image.data)},
         input_layers={"image": image.name},
         output_layer=output_name,
-        params={"kernel_size": kernel_size},
+        params=params,
     )
-    p = get_panel()
-    if p is not None:
-        p.refresh()
 
     napari_metadata = {
         "metadata": {**image.metadata},
@@ -102,22 +119,16 @@ def median_filter_widget(
 def gaussian_filter_widget(
     image: "napari.layers.Image", sigma: float = 0.0
 ) -> "napari.types.LayerDataTuple":
-    data = fn.gaussian_filter(asarray(image.data), sigma)
+    output_name = derive_name(image.name, "gauss")
 
-    if "gauss" in image.name:
-        output_name = image.name
-    else:
-        output_name = f"{image.name}_gauss"
-
-    recorder.record(
-        function="gaussian_filter",
+    params = {"sigma": sigma}
+    data = _run_and_record_action(
+        func=fn.gaussian_filter,
+        inputs={"image": asarray(image.data)},
         input_layers={"image": image.name},
         output_layer=output_name,
-        params={"sigma": sigma},
+        params=params,
     )
-    p = get_panel()
-    if p is not None:
-        p.refresh()
 
     napari_metadata = {
         "metadata": {**image.metadata},
@@ -141,22 +152,16 @@ def gaussian_filter_widget(
 def sobel_filter_widget(
     image: "napari.layers.Image",
 ) -> "napari.types.LayerDataTuple":
-    data = fn.sobel_filter(asarray(image.data))
+    output_name = derive_name(image.name, "sobel")
 
-    if "sobel" in image.name:
-        output_name = image.name
-    else:
-        output_name = f"{image.name}_sobel"
-
-    recorder.record(
-        function="sobel_filter",
+    params = {}
+    data = _run_and_record_action(
+        func=fn.sobel_filter,
+        inputs={"image": asarray(image.data)},
         input_layers={"image": image.name},
         output_layer=output_name,
-        params={},
+        params=params,
     )
-    p = get_panel()
-    if p is not None:
-        p.refresh()
 
     napari_metadata = {
         "metadata": {**image.metadata},
@@ -322,11 +327,20 @@ class LocateSurfaceWidget(QWidget):
         label_color = self.color_combo.currentText()
         color_id = COLORMAP[label_color]
 
-        coords = fn.locate_surface(
-            asarray(image_layer.data), upper_bound, lower_bound, axial_offset, color_id
+        output_name = derive_name(image_layer.name, "surface-coords")
+        params = {
+            "upper_bound": upper_bound,
+            "lower_bound": lower_bound,
+            "axial_offset": axial_offset,
+            "color_id": color_id,
+        }
+        coords = _run_and_record_action(
+            func=fn.locate_surface,
+            inputs={"image": asarray(image_layer.data)},
+            input_layers={"image": image_layer.name},
+            output_layer=output_name,
+            params=params,
         )
-
-        output_name = f"{image_layer.name}_surface-coords"
 
         existing = [lay.name for lay in self.viewer.layers]
         if output_name in existing:
@@ -344,22 +358,6 @@ class LocateSurfaceWidget(QWidget):
                 axis_labels=image_layer.axis_labels,
                 units=image_layer.units,
             )
-
-        # --- record ---
-        record_params = {
-            "upper_bound": upper_bound,
-            "lower_bound": lower_bound,
-            "axial_offset": axial_offset,
-        }
-        recorder.record(
-            function="locate_surface",
-            input_layers={"image": image_layer.name},
-            output_layer=output_name,
-            params=record_params,
-        )
-        panel = get_panel()
-        if panel is not None:
-            panel.refresh()
 
     ## --- Helpers ---
     def _get_selected_image_layer(self):
@@ -503,15 +501,16 @@ class DefineRoiWidget(QWidget):
 
         roi_corner_points = self._get_points()
 
-        data = fn.define_roi(
-            asarray(image_layer.data),
-            roi_corner_points,
-        )
+        output_name = derive_name(image_layer.name, "roi")
 
-        if "_roi" in image_layer.name:
-            output_name = image_layer.name
-        else:
-            output_name = f"{image_layer.name}_roi"
+        params = {"roi_corner_points": roi_corner_points}
+        data = _run_and_record_action(
+            func=fn.define_roi,
+            inputs={"image": asarray(image_layer.data)},
+            input_layers={"image": image_layer.name},
+            output_layer=output_name,
+            params=params,
+        )
 
         roi_metadata = {
             **image_layer.metadata,
@@ -536,16 +535,6 @@ class DefineRoiWidget(QWidget):
                 contrast_limits=(0, 255) if data.dtype == np.uint8 else (0, 1),
             )
 
-        recorder.record(
-            function="define_roi",
-            input_layers={"image": image_layer.name},
-            output_layer=output_name,
-            params={"roi_corner_points": [list(point) for point in roi_corner_points]},
-        )
-        panel = get_panel()
-        if panel is not None:
-            panel.refresh()
-
     def _get_selected_image_layer(self):
         name = self.image_combo.currentText()
         if not name or name == "None":
@@ -568,22 +557,16 @@ class DefineRoiWidget(QWidget):
 def remove_small_objects_widget(
     labels: "napari.layers.Labels", max_object_size: int = 0
 ) -> "napari.types.LayerDataTuple":
-    data = fn.remove_small_objects(asarray(labels.data), max_object_size)
+    output_name = derive_name(labels.name, "cleaned")
 
-    if "cleaned" in labels.name:
-        output_name = labels.name
-    else:
-        output_name = f"{labels.name}_cleaned"
-
-    recorder.record(
-        function="remove_small_objects",
+    params = {"max_object_size": max_object_size}
+    data = _run_and_record_action(
+        func=fn.remove_small_objects,
+        inputs={"labels": asarray(labels.data)},
         input_layers={"labels": labels.name},
         output_layer=output_name,
-        params={"max_object_size": max_object_size},
+        params=params,
     )
-    p = get_panel()
-    if p is not None:
-        p.refresh()
 
     napari_metadata = {
         "metadata": {**labels.metadata},
@@ -604,24 +587,17 @@ def interpolate_gaps_widget(
     surface: "napari.layers.Labels",
 ) -> "napari.types.LayerDataTuple":
     roi_corner_points = surface.metadata.get("roi_corner_points", None)
-    interpolated = fn.interpolate_gaps(
-        asarray(surface.data), roi_corner_points=roi_corner_points
-    )
 
-    if "interpolated" in surface.name:
-        output_name = surface.name
-    else:
-        output_name = f"{surface.name}_interpolated"
+    output_name = derive_name(surface.name, "interpolated")
 
-    recorder.record(
-        function="interpolate_gaps",
+    params = {"roi_corner_points": roi_corner_points}
+    interpolated = _run_and_record_action(
+        func=fn.interpolate_gaps,
+        inputs={"surface": asarray(surface.data)},
         input_layers={"surface": surface.name},
         output_layer=output_name,
-        params={},
+        params=params,
     )
-    panel = get_panel()
-    if panel is not None:
-        panel.refresh()
 
     napari_metadata = {
         "metadata": {**surface.metadata},
@@ -653,24 +629,19 @@ def zero_out_area_widget(
     surface_coords: "napari.layers.Labels",
     direction: Literal["above", "below"] = "below",
 ) -> "napari.types.LayerDataTuple":
-    data = fn.zero_out_area(
-        asarray(image.data), asarray(surface_coords.data), direction
-    )
+    output_name = derive_name(image.name, "zeroed")
 
-    if "zeroed" in image.name:
-        output_name = image.name
-    else:
-        output_name = f"{image.name}_zeroed"
-
-    recorder.record(
-        function="zero_out_area",
+    params = {"direction": direction}
+    data = _run_and_record_action(
+        func=fn.zero_out_area,
+        inputs={
+            "image": asarray(image.data),
+            "surface_coords": asarray(surface_coords.data),
+        },
         input_layers={"image": image.name, "surface_coords": surface_coords.name},
         output_layer=output_name,
-        params={"direction": direction},
+        params=params,
     )
-    panel = get_panel()
-    if panel is not None:
-        panel.refresh()
 
     napari_metadata = {
         "metadata": {**image.metadata},
@@ -708,24 +679,19 @@ def replace_reflection_widget(
     axial_offset: int = 5,
     axial_padding: int = 2,
 ) -> "napari.types.LayerDataTuple":
-    data = fn.replace_reflection(
-        asarray(image.data), asarray(reflection.data), axial_padding, axial_offset
-    )
+    output_name = derive_name(image.name, "reflection_removed")
 
-    if "reflection_removed" in image.name:
-        output_name = image.name
-    else:
-        output_name = f"{image.name}_reflection_removed"
-
-    recorder.record(
-        function="replace_reflection",
+    params = {"axial_offset": axial_offset, "axial_padding": axial_padding}
+    data = _run_and_record_action(
+        func=fn.replace_reflection,
+        inputs={
+            "image": asarray(image.data),
+            "reflection": asarray(reflection.data),
+        },
         input_layers={"image": image.name, "reflection": reflection.name},
         output_layer=output_name,
-        params={"axial_offset": axial_offset, "axial_padding": axial_padding},
+        params=params,
     )
-    panel = get_panel()
-    if panel is not None:
-        panel.refresh()
 
     napari_metadata = {
         "metadata": {**image.metadata},
@@ -750,22 +716,19 @@ def replace_reflection_widget(
 def untilt_widget(
     image: "napari.layers.Layer", substratum_coords: "napari.layers.Labels"
 ) -> "napari.types.LayerDataTuple":
-    data = fn.untilt(asarray(image.data), asarray(substratum_coords.data))
+    output_name = derive_name(image.name, "untilted")
 
-    if "untilted" in image.name:
-        output_name = image.name
-    else:
-        output_name = f"{image.name}_untilted"
-
-    recorder.record(
-        function="untilt",
+    params = {}
+    data = _run_and_record_action(
+        func=fn.untilt,
+        inputs={
+            "image": asarray(image.data),
+            "substratum_coords": asarray(substratum_coords.data),
+        },
         input_layers={"image": image.name, "substratum_coords": substratum_coords.name},
         output_layer=output_name,
-        params={},
+        params=params,
     )
-    panel = get_panel()
-    if panel is not None:
-        panel.refresh()
 
     napari_metadata = {
         "metadata": {**image.metadata},
@@ -835,37 +798,23 @@ def enhance_contrast_widget(
     clahe_clip_limit: float = 2.0,
     clahe_tile_size: int = 8,
 ) -> "napari.types.LayerDataTuple":
-    data = fn.enhance_contrast(
-        asarray(image.data),
-        method=method,
-        gamma=gamma,
-        clip_low_pct=clip_low_pct,
-        clip_high_pct=clip_high_pct,
-        clahe_clip_limit=clahe_clip_limit,
-        clahe_tile_size=clahe_tile_size,
-    )
+    output_name = derive_name(image.name, "enhanced")
 
-    if "enhanced" in image.name:
-        output_name = image.name
-    else:
-        output_name = f"{image.name}_enhanced"
-
-    recorder.record(
-        function="enhance_contrast",
+    params = {
+        "method": method,
+        **({"gamma": gamma} if method == "gamma" else {}),
+        **({"clip_low_pct": clip_low_pct} if method == "clip" else {}),
+        **({"clip_high_pct": clip_high_pct} if method == "clip" else {}),
+        **({"clahe_clip_limit": clahe_clip_limit} if method == "clahe" else {}),
+        **({"clahe_tile_size": clahe_tile_size} if method == "clahe" else {}),
+    }
+    data = _run_and_record_action(
+        func=fn.enhance_contrast,
+        inputs={"image": asarray(image.data)},
         input_layers={"image": image.name},
         output_layer=output_name,
-        params={
-            "method": method,
-            **({"gamma": gamma} if method == "gamma" else {}),
-            **({"clip_low_pct": clip_low_pct} if method == "clip" else {}),
-            **({"clip_high_pct": clip_high_pct} if method == "clip" else {}),
-            **({"clahe_clip_limit": clahe_clip_limit} if method == "clahe" else {}),
-            **({"clahe_tile_size": clahe_tile_size} if method == "clahe" else {}),
-        },
+        params=params,
     )
-    panel = get_panel()
-    if panel is not None:
-        panel.refresh()
 
     napari_metadata = {
         "metadata": {**image.metadata},
@@ -1074,11 +1023,19 @@ class ThresholdWidget(QWidget):
         label_color = self.color_combo.currentText()
         color_id = COLORMAP[label_color]
 
-        data = fn.threshold(
-            asarray(image_layer.data), method, manual_threshold, color_id=color_id
+        output_name = derive_name(image_layer.name, "binary")
+        params = {
+            "method": method,
+            "manual_threshold": manual_threshold,
+            "color_id": color_id,
+        }
+        data = _run_and_record_action(
+            func=fn.threshold,
+            inputs={"image": asarray(image_layer.data)},
+            input_layers={"image": image_layer.name},
+            output_layer=output_name,
+            params=params,
         )
-
-        output_name = f"{image_layer.name}_binary"
 
         existing = [lay.name for lay in self.viewer.layers]
         if output_name in existing:
@@ -1097,50 +1054,26 @@ class ThresholdWidget(QWidget):
                 opacity=1.0,
             )
 
-        recorder.record(
-            function="threshold",
-            input_layers={"image": image_layer.name},
-            output_layer=output_name,
-            params={
-                "method": method,
-                **(
-                    {"manual_threshold": manual_threshold} if method == "manual" else {}
-                ),
-            },
-        )
-        p = get_panel()
-        if p is not None:
-            p.refresh()
-
 
 @magic_factory(
     call_button="Export to TIFF",
     image={"label": "Image"},
 )
 def export_to_tiff_widget(image: "napari.layers.Layer") -> None:
-    source_dir = Path(image.metadata["source_dir"])
-    savepath = source_dir / f"{image.name}.tiff"
-
-    fn.export_to_tiff(
-        image=asarray(image.data),
-        spacing=asarray(image.metadata["spacing"]),
-        path=savepath,
-    )
-
-    recorder.record(
-        function="export_to_tiff",
+    params = {
+        "spacing": image.metadata[
+            "spacing"
+        ],  # * should stay the same for a batch -> keep static in record+replay
+        "output_filename": "{input_layer}.tiff",
+    }
+    _run_and_record_action(
+        func=fn.export_to_tiff,
+        inputs={"image": asarray(image.data)},
         input_layers={"image": image.name},
         output_layer=None,
-        params={
-            "spacing": image.metadata[
-                "spacing"
-            ],  # * should stay the same for a batch -> keep static in record+replay
-            "path": f"{SOURCE_DIR_PLACEHOLDER}/{LAYER_NAME_PLACEHOLDER}.tiff",
-        },
+        params=params,
+        resolve_path=lambda name: resolve_output_path(name, image),
     )
-    p = get_panel()
-    if p is not None:
-        p.refresh()
 
 
 @magic_factory(
@@ -1148,27 +1081,18 @@ def export_to_tiff_widget(image: "napari.layers.Layer") -> None:
     image={"label": "Image"},
 )
 def export_to_nifti_widget(image: "napari.layers.Layer") -> None:
-    source_dir = Path(image.metadata["source_dir"])
-    savepath = source_dir / f"{image.name}.nii.gz"
-
-    fn.export_to_nifti(
-        image=asarray(image.data),
-        affine=asarray(image.affine.affine_matrix),
-        path=savepath,
-    )
-
-    recorder.record(
-        function="export_to_nifti",
+    params = {
+        "affine": image.affine.affine_matrix.tolist(),  # * should stay the same for a batch -> keep static in record+replay
+        "output_filename": "{input_layer}.nii.gz",
+    }
+    _run_and_record_action(
+        func=fn.export_to_nifti,
+        inputs={"image": asarray(image.data)},
         input_layers={"image": image.name},
         output_layer=None,
-        params={
-            "affine": image.affine.affine_matrix.tolist(),  # * should stay the same for a batch -> keep static in record+replay
-            "path": f"{SOURCE_DIR_PLACEHOLDER}/{LAYER_NAME_PLACEHOLDER}.nii.gz",
-        },
+        params=params,
+        resolve_path=lambda name: resolve_output_path(name, image),
     )
-    p = get_panel()
-    if p is not None:
-        p.refresh()
 
 
 @magic_factory(
@@ -1194,43 +1118,44 @@ def create_height_map_widget(
     axes: bool = False,
     preview: bool = True,
 ) -> None:
-    source_dir = Path(segmentation.metadata.get("source_dir", Path.home()))
-    path = source_dir / f"{segmentation.name}_Hmap.tiff"
-
     spacing = segmentation.metadata.get("spacing", None)
+    output_filename = "{input_layer}_Hmap.tiff"
+    inputs = {
+        "segmentation": asarray(segmentation.data),
+        "preview": preview,
+    }
+    input_layers: dict[str, str | None] = {"segmentation": segmentation.name}
+    if substratum is not None:
+        inputs["substratum"] = asarray(substratum.data)
+        input_layers["substratum"] = substratum.name
 
-    fn.create_height_map(
-        segmentation=asarray(segmentation.data),
-        substratum=asarray(substratum.data) if substratum is not None else None,
-        spacing=asarray(spacing) if spacing is not None else None,
-        max_height_um=max_height_um,
-        colorbar=colorbar,
-        scalebar=scalebar,
-        preview=preview,
-        axes=axes,
-        path=path,
-    )
-
-    if not preview:
-        recorder.record(
-            function="create_height_map",
-            input_layers={
-                "segmentation": segmentation.name,
-                **({"substratum": substratum.name} if substratum is not None else {}),
-            },
-            output_layer=None,
-            params={
-                "spacing": spacing,  # * should stay the same for a batch -> keep static in record+replay
-                "max_height_um": max_height_um,
-                "colorbar": colorbar,
-                "scalebar": scalebar,
-                "axes": axes,
-                "path": f"{SOURCE_DIR_PLACEHOLDER}/{LAYER_NAME_PLACEHOLDER}_Hmap.tiff",
-            },
+    if preview:
+        fn.create_height_map(
+            **inputs,
+            spacing=asarray(spacing) if spacing is not None else None,
+            max_height_um=max_height_um,
+            colorbar=colorbar,
+            scalebar=scalebar,
+            axes=axes,
+            path=resolve_output_path(output_filename, segmentation),
         )
-        p = get_panel()
-        if p is not None:
-            p.refresh()
+        return
+
+    _run_and_record_action(
+        func=fn.create_height_map,
+        inputs=inputs,
+        input_layers=input_layers,
+        output_layer=None,
+        params={
+            "spacing": spacing,
+            "max_height_um": max_height_um,
+            "colorbar": colorbar,
+            "scalebar": scalebar,
+            "axes": axes,
+            "output_filename": output_filename,
+        },
+        resolve_path=lambda name: resolve_output_path(name, segmentation),
+    )
 
 
 @magic_factory(
@@ -1256,43 +1181,44 @@ def create_bv_map_widget(
     axes: bool = False,
     preview: bool = True,
 ) -> None:
-    source_dir = Path(segmentation.metadata.get("source_dir", Path.home()))
-    path = source_dir / f"{segmentation.name}_BVmap.tiff"
-
     spacing = segmentation.metadata.get("spacing", None)
+    output_filename = "{input_layer}_BVmap.tiff"
+    inputs = {
+        "segmentation": asarray(segmentation.data),
+        "preview": preview,
+    }
+    input_layers: dict[str, str | None] = {"segmentation": segmentation.name}
+    if substratum is not None:
+        inputs["substratum"] = asarray(substratum.data)
+        input_layers["substratum"] = substratum.name
 
-    fn.create_bv_map(
-        segmentation=asarray(segmentation.data),
-        substratum=asarray(substratum.data) if substratum is not None else None,
-        spacing=asarray(spacing) if spacing is not None else None,
-        max_height_um=max_height_um,
-        colorbar=colorbar,
-        scalebar=scalebar,
-        preview=preview,
-        axes=axes,
-        path=path,
-    )
-
-    if not preview:
-        recorder.record(
-            function="create_bv_map",
-            input_layers={
-                "segmentation": segmentation.name,
-                **({"substratum": substratum.name} if substratum is not None else {}),
-            },
-            output_layer=None,
-            params={
-                "spacing": spacing,  # * should stay the same for a batch -> keep static in record+replay
-                "max_height_um": max_height_um,
-                "colorbar": colorbar,
-                "scalebar": scalebar,
-                "axes": axes,
-                "path": f"{SOURCE_DIR_PLACEHOLDER}/{LAYER_NAME_PLACEHOLDER}_BVmap.tiff",
-            },
+    if preview:
+        fn.create_bv_map(
+            **inputs,
+            spacing=asarray(spacing) if spacing is not None else None,
+            max_height_um=max_height_um,
+            colorbar=colorbar,
+            scalebar=scalebar,
+            axes=axes,
+            path=resolve_output_path(output_filename, segmentation),
         )
-        p = get_panel()
-        if p is not None:
-            p.refresh()
+        return
+
+    _run_and_record_action(
+        func=fn.create_bv_map,
+        inputs=inputs,
+        input_layers=input_layers,
+        output_layer=None,
+        params={
+            "spacing": spacing,
+            "max_height_um": max_height_um,
+            "colorbar": colorbar,
+            "scalebar": scalebar,
+            "axes": axes,
+            "output_filename": output_filename,
+        },
+        resolve_path=lambda name: resolve_output_path(name, segmentation),
+    )
 
 
 @magic_factory(
@@ -1304,10 +1230,6 @@ def calculate_metrics_widget(
     segmentation: "napari.layers.Labels",
     substratum: "napari.layers.Labels | None" = None,
 ) -> None:
-    source_dir = Path(segmentation.metadata.get("source_dir", Path.home()))
-    path = source_dir / f"{segmentation.name}_metrics.csv"
-    batch_export_path = f"{SOURCE_DIR_PLACEHOLDER}/batch_metrics.csv"
-
     spacing = segmentation.metadata.get("spacing")
     assert spacing is not None
 
@@ -1315,31 +1237,30 @@ def calculate_metrics_widget(
     if roi_corner_points is not None:
         roi_corner_points = np.asarray(roi_corner_points, dtype=np.int32).tolist()
 
-    fn.calculate_metrics(
-        asarray(segmentation.data),
-        segmentation.name,
-        Path(path),
-        asarray(spacing),
-        asarray(substratum.data) if substratum is not None else None,
-        roi_corner_points=roi_corner_points,
-    )
+    inputs = {
+        "segmentation": asarray(segmentation.data),
+        "layername": segmentation.name,
+    }
+    input_layers: dict[str, str | None] = {"segmentation": segmentation.name}
+    if substratum is not None:
+        inputs["substratum"] = asarray(substratum.data)
+        input_layers["substratum"] = substratum.name
 
-    record_params = {"spacing": spacing, "path": batch_export_path}
+    params = {
+        "spacing": spacing,
+        "output_filename": "batch_metrics.csv",
+    }
     if roi_corner_points is not None:
-        record_params["roi_corner_points"] = roi_corner_points
+        params["roi_corner_points"] = roi_corner_points
 
-    recorder.record(
-        function="calculate_metrics",
-        input_layers={
-            "segmentation": segmentation.name,
-            **({"substratum": substratum.name} if substratum is not None else {}),
-        },
+    _run_and_record_action(
+        func=fn.calculate_metrics,
+        inputs=inputs,
+        input_layers=input_layers,
         output_layer=None,
-        params=record_params,
+        params=params,
+        resolve_path=lambda name: resolve_output_path(name, segmentation),
     )
-    p = get_panel()
-    if p is not None:
-        p.refresh()
 
 
 # endregion WIDGETS

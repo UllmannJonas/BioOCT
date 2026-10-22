@@ -26,10 +26,9 @@ The **Pipeline Manager** widget is the core of reproducible, repeatable processi
 - The recorded pipeline can be saved to / loaded from a `.yaml` file, and individual steps can be deleted or cleared.
 - **Single Replay** re-applies the recorded pipeline to a chosen layer in the current session.
 - **Batch Replay** re-applies the recorded pipeline to every `.oct` file in a selected folder, one after another, including any export steps (TIFF/NIfTI/metrics) the pipeline contains.
+- **Output folder (optional)** applies to both replay modes. Leave it empty to save beside each dataset in its source folder, or choose a shared destination. The selected folder is checked for existence and write access before replay begins.
 
-**Tip:** In order to be applicable to different filenames without manual adjustment, the pipeline uses placeholders for:
-1) the filename/initial layername (`$base`),
-2) the directory for saving (`$source_dir`).
+**Tip:** In order to be applicable to different filenames without manual adjustment, the pipeline uses `$base` for the filename/initial layer name. File-producing steps record an `output_filename` parameter; `{input_layer}` resolves to the first input layer's name, and output goes to that layer's dataset source folder unless an output-folder override is selected. Older pipeline files with a string `path` using `$source_dir` and `$layer_name` templates remain supported; `$layer_name` keeps its original base-layer meaning.
 
 **Pro-tip:** You can edit a .yaml pipeline file manually like a .txt file (e.g. change parameter values) - but be sure not to change indentation.
 
