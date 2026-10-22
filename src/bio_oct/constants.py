@@ -1,14 +1,4 @@
 from enum import StrEnum
-from typing import Callable
-
-from skimage.filters.thresholding import (
-    threshold_otsu,
-    threshold_yen,
-    threshold_li,
-    threshold_mean,
-    threshold_isodata,
-    threshold_triangle,
-)
 
 COLORMAP: dict[str, int] = {
     "Cyan": 2,
@@ -82,15 +72,7 @@ TOOLTIPS: dict[str, dict[str, str]] = {
     },
 }
 
-THRESHOLD_METHODS: dict[str, Callable] = {
-    "otsu": threshold_otsu,
-    "yen": threshold_yen,
-    "li": threshold_li,
-    "mean": threshold_mean,
-    "isodata": threshold_isodata,
-    "triangle": threshold_triangle,
-    "manual": lambda x: None,  # placeholder, handled separately
-}
+THRESHOLD_METHODS = ("otsu", "yen", "li", "mean", "isodata", "triangle", "manual")
 
 
 # registry function names to avoid typos
