@@ -33,7 +33,12 @@ class PipelineRecorder:
         """Replace the base layer name with the $base placeholder."""
         if name is None or self._base_name is None:
             return name
-        return name.replace(self._base_name, BASE_LAYER_PLACEHOLDER)
+        if name == self._base_name:
+            return BASE_LAYER_PLACEHOLDER
+        prefix = f"{self._base_name}_"
+        if name.startswith(prefix):
+            return f"{BASE_LAYER_PLACEHOLDER}{name[len(self._base_name) :]}"
+        return name
 
     def record(
         self,
@@ -46,7 +51,7 @@ class PipelineRecorder:
             return
 
         if not self.steps:
-            self._base_name = input_layers.get("image")
+            self._base_name = next(iter(input_layers.values()), None)
 
         self.steps.append(
             {
@@ -67,7 +72,7 @@ class PipelineRecorder:
     def save(self, yaml_path: str | Path) -> None:
         with open(yaml_path, "w", encoding="utf-8") as f:
             yaml.dump(
-                {"created with": self._base_name, "pipeline": self.steps},
+                {"pipeline": self.steps},
                 f,
                 allow_unicode=True,
                 sort_keys=False,
