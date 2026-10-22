@@ -18,12 +18,14 @@ Pipeline Contract:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 # region IMPORTS
 # python native imports
 from functools import cache
-from typing import TYPE_CHECKING, Any, Callable, Literal
-from pathlib import Path
 from math import isclose
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -32,8 +34,8 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
 # local imports
-from .registry import register, store_roi_metadata
 from .constants import THRESHOLD_METHODS
+from .registry import register, store_roi_metadata
 
 # endregion IMPORTS
 
@@ -158,7 +160,7 @@ def interpolate_gaps(
     shape_3D = surface.shape
 
     """
-    #! 2D support, needs testing after v0.4.0
+    # ! 2D support, needs testing after v0.4.0
     # 2D case (single B-scan): griddata needs at least 2 points in different positions
     # to triangulate — with shape[0]==1 we only have a 1D problem (lateral axis only),
     # so we use 1D linear interpolation via numpy instead.

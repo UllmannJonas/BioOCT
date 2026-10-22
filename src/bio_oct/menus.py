@@ -1,7 +1,8 @@
-from typing import cast, TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
+
+import matplotlib.pyplot as plt
 import numpy as np
 from skimage.measure import label
-import matplotlib.pyplot as plt
 
 if TYPE_CHECKING:
     import napari.layers
@@ -21,7 +22,7 @@ def plot_connected_components(image: "napari.layers.Labels") -> None:
 
     all_sizes = np.concatenate(all_sizes)
 
-    #! how to make bins=number of component sizes
+    # ! how to make bins=number of component sizes
     plt.hist(all_sizes, bins=500)
     plt.xlabel("Component size (pixels)")
     plt.ylabel("Frequency")

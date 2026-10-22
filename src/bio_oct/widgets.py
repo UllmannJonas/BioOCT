@@ -1,36 +1,38 @@
 # region IMPORTS
 # Python native imports
-from typing import Any, Callable, Literal, cast, TYPE_CHECKING
-from pathlib import Path
 import json
+from collections.abc import Callable
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal, cast
+
+import numpy as np
 
 # Third party imports
 from magicgui import magic_factory
-import numpy as np
 from numpy import asarray
 from qtpy.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QSpinBox,
-    QComboBox,
-    QPushButton,
-    QLabel,
     QCheckBox,
+    QComboBox,
     QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
 )
 
 # Local imports
 from . import functions as fn
-from .recorder import recorder
-from .output_paths import resolve_output_path
-from .naming import derive_name
-from .panel import get_panel
 from .constants import (
-    TOOLTIPS,
     COLORMAP,
     THRESHOLD_METHODS,
+    TOOLTIPS,
 )
+from .naming import derive_name
+from .output_paths import resolve_output_path
+from .panel import get_panel
+from .recorder import recorder
 
 if TYPE_CHECKING:
     import napari.layers
@@ -434,7 +436,7 @@ class DefineRoiWidget(QWidget):
             if isinstance(layer, _get_napari_image_class()):
                 self.image_combo.addItem(layer.name)
         idx = self.image_combo.findText(current)
-        self.image_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.image_combo.setCurrentIndex(max(idx, 0))
         self.image_combo.blockSignals(False)
 
     def _on_image_changed(self, _=None):
@@ -960,7 +962,7 @@ class ThresholdWidget(QWidget):
             if isinstance(layer, _get_napari_image_class()):
                 self.image_combo.addItem(layer.name)
         idx = self.image_combo.findText(current)
-        self.image_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.image_combo.setCurrentIndex(max(idx, 0))
         self.image_combo.blockSignals(False)
 
     def _refresh_apply_combo(self, _=None):

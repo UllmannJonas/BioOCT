@@ -6,10 +6,11 @@ Can read:
 """
 
 from __future__ import annotations
-from typing import Callable, Tuple
-from pathlib import Path
-import zipfile
+
 import xml.etree.ElementTree as ET
+import zipfile
+from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
 from numpy.typing import NDArray
@@ -65,8 +66,8 @@ class ThorlabsOCT:
         element = root.find(path)
         return cast(element.text) if element is not None else 0
 
-    #! 2D support, needs testing after v0.4.0
-    #! def _get_spacing(self, header_root, is_2d: bool = False) -> np.ndarray:
+    # ! 2D support, needs testing after v0.4.0
+    # ! def _get_spacing(self, header_root, is_2d: bool = False) -> np.ndarray:
     def _get_spacing(self, header_root) -> np.ndarray:
         spacing = {
             "b_scans": float(
@@ -106,9 +107,9 @@ class ThorlabsOCT:
             for axis in ["b_scans", "axial", "lateral"]:
                 if shape[axis] > 0 and fov[axis] > 0:
                     spacing[axis] = fov[axis] / shape[axis]
-                #! 2D support, needs testing after v0.4.0
-                #! elif is_2d and axis == "b_scans":  # Mode2D has no SizeY in header -> lateral spacing as fallback
-                #!     spacing[axis] = spacing["lateral"] if spacing["lateral"] > 0.0 else 0.01
+                # ! 2D support, needs testing after v0.4.0
+                # ! elif is_2d and axis == "b_scans":  # Mode2D has no SizeY in header -> lateral spacing as fallback
+                # !     spacing[axis] = spacing["lateral"] if spacing["lateral"] > 0.0 else 0.01
                 else:
                     return np.array([0.01, 0.01, 0.01])
 
@@ -126,7 +127,7 @@ class ThorlabsOCT:
 
     def _load(
         self, filepath: Path | str
-    ) -> Tuple[NDArray[np.float32], np.ndarray, int, str]:
+    ) -> tuple[NDArray[np.float32], np.ndarray, int, str]:
         with zipfile.ZipFile(filepath, "r") as z:
             items = z.namelist()
             header = next(item for item in items if "Header" in item)
@@ -140,15 +141,15 @@ class ThorlabsOCT:
             with z.open(intensity) as i:
                 intensity_raw = i.read()
 
-        #! 2D support, needs testing after v0.4.0
-        #! detect 2D acquisition (singe B-Scan)
-        #! is_2d = (self._get_xmlelement(header_root, path="MetaInfo/AcquisitionMode") == "Mode2D")
+        # ! 2D support, needs testing after v0.4.0
+        # ! detect 2D acquisition (singe B-Scan)
+        # ! is_2d = (self._get_xmlelement(header_root, path="MetaInfo/AcquisitionMode") == "Mode2D")
 
         # safe metadata in same order that is used internally for correct referencing
         shape = (
-            #! 2D support, needs testing after v0.4.0
-            #! b_scans: explicitly 1 for Mode2D, otherwise read from header
-            #! 1 if is_2d else int(self._get_xmlelement(header_root, path="Image/SizePixel/SizeY")),
+            # ! 2D support, needs testing after v0.4.0
+            # ! b_scans: explicitly 1 for Mode2D, otherwise read from header
+            # ! 1 if is_2d else int(self._get_xmlelement(header_root, path="Image/SizePixel/SizeY")),
             int(self._get_xmlelement(header_root, path="Image/SizePixel/SizeY")),
             # axial (a-scan depth)
             int(self._get_xmlelement(header_root, path="Image/SizePixel/SizeZ")),
@@ -159,14 +160,14 @@ class ThorlabsOCT:
         ndims = len(shape)
 
         spacing = self._get_spacing(header_root)
-        #! 2D support needs testing after v0.4.0
-        #! spacing = self._get_spacing(header_root, is_2d=is_2d)
+        # ! 2D support needs testing after v0.4.0
+        # ! spacing = self._get_spacing(header_root, is_2d=is_2d)
 
         # shape as stored in Thorlabs OCT binary format due to physical scanning order
         # scanning laser goes: for every B-Scan (Y), for every lateral position (X), all axial points (Z)
-        #! for Mode2D: binary data is just (lateral, axial), reshape to (1, lateral, axial)
-        #! 2D support needs testing after v0.4.0
-        #! if is_2d:
+        # ! for Mode2D: binary data is just (lateral, axial), reshape to (1, lateral, axial)
+        # ! 2D support needs testing after v0.4.0
+        # ! if is_2d:
         #     shape_thorlabs = (shape[2], shape[1])
         #     stack = (
         #         np.frombuffer(intensity_raw, dtype=np.float32)
@@ -198,7 +199,7 @@ def get_reader_fn(path: str | list[str]) -> Callable | None:
     # the get_reader function should make as many checks as possible
     # (without loading the full file) to determine if it can read
     # the path.
-    if not Path(path).suffix == ".oct":
+    if Path(path).suffix != ".oct":
         return None
 
     # napari_get_reader should never raise an exception, because napari

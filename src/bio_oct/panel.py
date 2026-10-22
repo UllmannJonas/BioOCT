@@ -1,22 +1,23 @@
-import yaml
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import yaml
+from qtpy.QtGui import QFont
 from qtpy.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
-    QPlainTextEdit,
     QCheckBox,
-    QFileDialog,
     QComboBox,
+    QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
-    QGroupBox,
     QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
-from qtpy.QtGui import QFont
+
 from .recorder import recorder
 
 if TYPE_CHECKING:

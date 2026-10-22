@@ -1,22 +1,22 @@
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
-from .registry import REGISTRY, FunctionSpec
-from .recorder import PipelineRecorder
-from .output_paths import resolve_output_path
 from qtpy.QtWidgets import QApplication
 from tqdm import tqdm
 
 from .constants import (
     BASE_LAYER_PLACEHOLDER,
-    SOURCE_DIR_PLACEHOLDER,
     LAYER_NAME_PLACEHOLDER,
+    SOURCE_DIR_PLACEHOLDER,
 )
+from .output_paths import resolve_output_path
+from .recorder import PipelineRecorder
+from .registry import REGISTRY, FunctionSpec
 
 if TYPE_CHECKING:
-    import napari.viewer
     import napari.layers
+    import napari.viewer
 
 
 class _LayerProperties(TypedDict):
@@ -301,7 +301,7 @@ def replay_on_batch(
                 base_layer_name=f.stem,
                 output_folder=output_folder,
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - batch must continue on any per-file error
             errors.append({"file": f, "error": e})
             print("=" * 10)
             print(f"Error on file: {f}")

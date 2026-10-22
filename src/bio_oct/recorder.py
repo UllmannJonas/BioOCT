@@ -1,5 +1,7 @@
-import yaml
 from pathlib import Path
+
+import yaml
+
 from .constants import BASE_LAYER_PLACEHOLDER
 
 
