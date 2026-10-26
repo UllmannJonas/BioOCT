@@ -1,15 +1,11 @@
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
 from qtpy.QtWidgets import QApplication
 from tqdm import tqdm
 
-from .constants import (
-    BASE_LAYER_PLACEHOLDER,
-    LAYER_NAME_PLACEHOLDER,
-    SOURCE_DIR_PLACEHOLDER,
-)
 from .output_paths import resolve_output_path
 from .recorder import PipelineRecorder
 from .registry import REGISTRY, FunctionSpec
@@ -50,12 +46,56 @@ class PipelineReplayError(RuntimeError):
         super().__init__(message)
 
 
+class PipelineDryRunError(ValueError):
+    pass
+
+
+_SUPPORTED_REPLAY_CONTEXTS = {"layername", "roi_corner_points"}
+
+
+def dry_run_pipeline(recorder: PipelineRecorder) -> None:
+    issues: list[str] = []
+
+    for step_nr, step in enumerate(recorder.steps, start=1):
+        step_index = step.get("step", step_nr)
+        function_name = step.get("function", "<unknown>")
+        spec = REGISTRY.get(function_name)
+        if spec is None:
+            issues.append(
+                f"Step {step_index} ({function_name}): function is not registered"
+            )
+            continue
+
+        unsupported_context = [
+            context_name
+            for context_name in spec.context
+            if context_name not in _SUPPORTED_REPLAY_CONTEXTS
+        ]
+        if unsupported_context:
+            issues.append(
+                f"Step {step_index} ({function_name}): unsupported replay context "
+                f"{', '.join(repr(name) for name in unsupported_context)}"
+            )
+
+        params = step["params"]
+        if "path" in params and "output_filename" in params:
+            issues.append(
+                f"Step {step_index} ({function_name}): a pipeline step cannot "
+                "contain both 'path' and 'output_filename' parameters"
+            )
+
+    if issues:
+        raise PipelineDryRunError("Pipeline dry-run failed:\n- " + "\n- ".join(issues))
+
+
 def _substitute(name: str | None, base_layer: str) -> str | None:
     """Replace $base placeholder with actual layer name."""
+    base = "$base"
+
     if name is None:
         return name
-    if name == BASE_LAYER_PLACEHOLDER or name.startswith(f"{BASE_LAYER_PLACEHOLDER}_"):
-        return f"{base_layer}{name[len(BASE_LAYER_PLACEHOLDER) :]}"
+    if name == base or name.startswith(f"{base}_"):
+        return f"{base_layer}{name[len(base) :]}"
     return name
 
 
@@ -101,14 +141,17 @@ def _resolve_savepath(
     base_layer: "napari.layers.Layer",
     output_folder: Path | None,
 ) -> Path:
+    source_dir_placeholder = "$source_dir"
+    layer_name_placeholder = "$layer_name"
+
     source_dir = str(
         output_folder
         if output_folder is not None
         else _source_directory(base_layer, base_layer)
     )
     layer_name = base_layer.name if hasattr(base_layer, "name") else "unknown_layer"
-    resolved = path.replace(SOURCE_DIR_PLACEHOLDER, source_dir).replace(
-        LAYER_NAME_PLACEHOLDER, layer_name
+    resolved = path.replace(source_dir_placeholder, source_dir).replace(
+        layer_name_placeholder, layer_name
     )
     return Path(resolved)
 
@@ -259,7 +302,17 @@ def replay_pipeline(
     if base_layer_name is None:
         return
     validate_output_folder(output_folder)
+    dry_run_pipeline(recorder)
 
+    _run_pipeline_steps(recorder, viewer, base_layer_name, output_folder)
+
+
+def _run_pipeline_steps(
+    recorder: PipelineRecorder,
+    viewer: "napari.viewer.Viewer",
+    base_layer_name: str,
+    output_folder: Path | None,
+) -> None:
     for step_position, step in enumerate(recorder.steps, start=1):
         function_name = str(step.get("function", "<unknown>"))
         step_index = step.get("step", step_position)
@@ -276,26 +329,36 @@ def replay_on_batch(
     viewer: "napari.viewer.Viewer",
     source_folder: Path,
     output_folder: Path | None = None,
+    on_progress: Callable[[int, int, Path | None], None] | None = None,
 ) -> None:
     validate_output_folder(output_folder)
+    dry_run_pipeline(recorder)
     print()
     print("#" * 20)
     print("Batch Pipeline Replay started...")
 
     files = sorted(source_folder.glob("*.oct"))
+    if on_progress is not None:
+        on_progress(0, len(files), None)
+
     if not files:
         print("No .oct files found in folder.")
         return
 
     errors: list[dict] = []
 
-    for f in tqdm(files, desc="Processing files", unit="file"):
+    for file_index, f in enumerate(
+        tqdm(files, desc="Processing files", unit="file"), 1
+    ):
+        if on_progress is not None:
+            on_progress(file_index - 1, len(files), f)
+
         print(f"\nProcessing: {f.stem}")
 
         try:
             viewer.open(f, plugin="bio_oct")
             QApplication.processEvents()
-            replay_pipeline(
+            _run_pipeline_steps(
                 recorder=recorder,
                 viewer=viewer,
                 base_layer_name=f.stem,
@@ -309,6 +372,8 @@ def replay_on_batch(
             print("Continuing with next file...")
         finally:
             viewer.layers.clear()
+            if on_progress is not None:
+                on_progress(file_index, len(files), f)
             QApplication.processEvents()
 
     print()
