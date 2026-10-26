@@ -1,8 +1,90 @@
 from pathlib import Path
+from typing import Any
 
 import yaml
 
-from .constants import BASE_LAYER_PLACEHOLDER
+_STEP_FIELDS = {
+    "step",
+    "function",
+    "input_layers",
+    "output_layer",
+    "params",
+}
+
+
+def _validate_pipeline(data: Any) -> list[dict]:
+    if not isinstance(data, dict):
+        raise TypeError("Invalid pipeline YAML: root must be a mapping")
+    if "pipeline" not in data:
+        raise ValueError("Invalid pipeline YAML: missing required 'pipeline' field")
+
+    steps = data["pipeline"]
+    if not isinstance(steps, list):
+        raise TypeError("Invalid pipeline YAML: 'pipeline' must be a list")
+
+    validated_steps: list[dict] = []
+    for step_nr, step in enumerate(steps, start=1):
+        if not isinstance(step, dict):
+            raise TypeError(f"Invalid pipeline step {step_nr}: must be a mapping")
+
+        unknown_fields = [key for key in step if key not in _STEP_FIELDS]
+        if unknown_fields:
+            unknown = ", ".join(repr(key) for key in sorted(unknown_fields))
+            raise ValueError(f"Invalid pipeline step {step_nr}: unknown key {unknown}")
+
+        missing_fields = [field for field in _STEP_FIELDS if field not in step]
+        if missing_fields:
+            missing = ", ".join(repr(field) for field in sorted(missing_fields))
+            raise ValueError(
+                f"Invalid pipeline step {step_nr}: missing required key {missing}"
+            )
+
+        if type(step["step"]) is not int:
+            raise TypeError(
+                f"Invalid pipeline step {step_nr}: 'step' must be an integer"
+            )
+        if not isinstance(step["function"], str):
+            raise TypeError(
+                f"Invalid pipeline step {step_nr}: 'function' must be a string"
+            )
+
+        input_layers = step["input_layers"]
+        if not isinstance(input_layers, dict):
+            raise TypeError(
+                f"Invalid pipeline step {step_nr}: 'input_layers' must be a mapping"
+            )
+        for argument, layer_reference in input_layers.items():
+            if not isinstance(argument, str):
+                raise TypeError(
+                    f"Invalid pipeline step {step_nr}: "
+                    "input layer argument names must be strings"
+                )
+            if layer_reference is not None and not isinstance(layer_reference, str):
+                raise TypeError(
+                    f"Invalid pipeline step {step_nr}: input layer reference "
+                    f"{argument!r} must be a string or null"
+                )
+
+        output_layer = step["output_layer"]
+        if output_layer is not None and not isinstance(output_layer, str):
+            raise TypeError(
+                f"Invalid pipeline step {step_nr}: "
+                "'output_layer' must be a string or null"
+            )
+
+        params = step["params"]
+        if not isinstance(params, dict):
+            raise TypeError(
+                f"Invalid pipeline step {step_nr}: 'params' must be a mapping"
+            )
+        if any(not isinstance(name, str) for name in params):
+            raise TypeError(
+                f"Invalid pipeline step {step_nr}: parameter names must be strings"
+            )
+
+        validated_steps.append(step)
+
+    return validated_steps
 
 
 def _normalize_for_yaml(value):
@@ -33,13 +115,15 @@ class PipelineRecorder:
 
     def _templatize(self, name: str | None) -> str | None:
         """Replace the base layer name with the $base placeholder."""
+        base = "$base"
+
         if name is None or self._base_name is None:
             return name
         if name == self._base_name:
-            return BASE_LAYER_PLACEHOLDER
+            return base
         prefix = f"{self._base_name}_"
         if name.startswith(prefix):
-            return f"{BASE_LAYER_PLACEHOLDER}{name[len(self._base_name) :]}"
+            return f"{base}{name[len(self._base_name) :]}"
         return name
 
     def record(
@@ -83,7 +167,8 @@ class PipelineRecorder:
     def load(self, yaml_path: str | Path) -> None:
         with open(yaml_path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
-        self.steps = data["pipeline"]
+        steps = _validate_pipeline(data)
+        self.steps = steps
         self._base_name = None
 
 

@@ -13,6 +13,7 @@ from qtpy.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -103,6 +104,9 @@ class PipelineManager(QWidget):
 
         self.replay_batch_btn = QPushButton("▶▶ Replay Batch")
         self.replay_batch_btn.clicked.connect(self._on_replay_batch)
+        self.batch_progress_label = QLabel("Batch progress")
+        self.batch_progress = QProgressBar()
+        self.batch_progress.setRange(0, 1)
 
         # --- Optional Replay Output Folder ---
         output_group = QGroupBox("Replay Output")
@@ -131,6 +135,8 @@ class PipelineManager(QWidget):
 
         batch_layout.addLayout(folder_row)
         batch_layout.addWidget(self.replay_batch_btn)
+        batch_layout.addWidget(self.batch_progress_label)
+        batch_layout.addWidget(self.batch_progress)
         batch_group.setLayout(batch_layout)
 
         # --- Full Layout ---
@@ -193,11 +199,15 @@ class PipelineManager(QWidget):
             self, "Load Pipeline", "", "YAML (*.yaml)"
         )
         if path:
-            recorder.load(path)
+            try:
+                recorder.load(path)
+            except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
+                QMessageBox.warning(self, "Invalid pipeline", str(exc))
+                return
             self.refresh()
 
     def _on_replay_single(self):
-        from .replay import replay_pipeline
+        from .replay import PipelineDryRunError, replay_pipeline
 
         base_layer = self.layer_combo.currentText() or None
         try:
@@ -207,6 +217,8 @@ class PipelineManager(QWidget):
                 base_layer_name=base_layer,
                 output_folder=self._selected_output_folder(),
             )
+        except PipelineDryRunError as exc:
+            QMessageBox.warning(self, "Invalid pipeline", str(exc))
         except ValueError as exc:
             QMessageBox.warning(self, "Invalid output folder", str(exc))
 
@@ -225,7 +237,7 @@ class PipelineManager(QWidget):
         return Path(folder) if folder else None
 
     def _on_replay_batch(self):
-        from .replay import replay_on_batch
+        from .replay import PipelineDryRunError, replay_on_batch
 
         folder_str = self.batch_folder_edit.text().strip()
         if not folder_str:
@@ -236,9 +248,24 @@ class PipelineManager(QWidget):
                 self.viewer,
                 Path(folder_str),
                 output_folder=self._selected_output_folder(),
+                on_progress=self._on_batch_progress,
             )
+        except PipelineDryRunError as exc:
+            QMessageBox.warning(self, "Invalid pipeline", str(exc))
         except ValueError as exc:
             QMessageBox.warning(self, "Invalid output folder", str(exc))
+
+    def _on_batch_progress(self, completed: int, total: int, current_file: Path | None):
+        self.batch_progress.setRange(0, max(total, 1))
+        self.batch_progress.setValue(completed)
+        if current_file is None:
+            self.batch_progress_label.setText(
+                "No .oct files found." if total == 0 else "Preparing batch..."
+            )
+        else:
+            self.batch_progress_label.setText(
+                f"❱ {current_file.name} ({completed}/{total})"
+            )
 
 
 panel = None

@@ -1,5 +1,3 @@
-from enum import StrEnum
-
 COLORMAP: dict[str, int] = {
     "Cyan": 2,
     "Yellow": 9,
@@ -73,15 +71,3 @@ TOOLTIPS: dict[str, dict[str, str]] = {
 }
 
 THRESHOLD_METHODS = ("otsu", "yen", "li", "mean", "isodata", "triangle", "manual")
-
-
-# registry function names to avoid typos
-class Fn(StrEnum):
-    CONVERT_TO_8BIT = "convert_to_8bit"
-    MEDIAN_FILTER = "median_filter"
-
-
-# pipeline placeholders
-BASE_LAYER_PLACEHOLDER = "$base"
-SOURCE_DIR_PLACEHOLDER = "$source_dir"
-LAYER_NAME_PLACEHOLDER = "$layer_name"
