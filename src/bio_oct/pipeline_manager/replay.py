@@ -6,21 +6,13 @@ from typing import TYPE_CHECKING, Any, TypedDict
 from qtpy.QtWidgets import QApplication
 from tqdm import tqdm
 
-from .output_paths import resolve_output_path
+from ..functions.registry import REGISTRY, FunctionSpec
+from ..shared_utility import copy_layer_properties, resolve_output_path
 from .recorder import PipelineRecorder
-from .registry import REGISTRY, FunctionSpec
 
 if TYPE_CHECKING:
     import napari.layers
     import napari.viewer
-
-
-class _LayerProperties(TypedDict):
-    affine: Any
-    metadata: dict[str, Any]
-    scale: Any
-    axis_labels: Any
-    units: Any
 
 
 class _ResolvedStep(TypedDict):
@@ -32,6 +24,21 @@ class _ResolvedStep(TypedDict):
 
 
 class PipelineReplayError(RuntimeError):
+    """Raised when a saved pipeline cannot be replayed successfully.
+
+    Attributes
+    ----------
+    step_index : int
+        The 1-based index of the pipeline step that failed.
+    function_name : str
+        The name of the function that failed.
+    cause : BaseException | None
+        The original exception that caused the failure, if any.
+
+    The exception preserves the failing step index and the function name so the
+    caller can report the issue precisely.
+    """
+
     def __init__(
         self,
         step_index: int,
@@ -47,13 +54,18 @@ class PipelineReplayError(RuntimeError):
 
 
 class PipelineDryRunError(ValueError):
-    pass
+    """Raised when a pipeline definition is structurally invalid before replay."""
 
 
 _SUPPORTED_REPLAY_CONTEXTS = {"layername", "roi_corner_points"}
 
 
 def dry_run_pipeline(recorder: PipelineRecorder) -> None:
+    """Validate a recorded pipeline without executing its processing steps.
+
+    This check catches unsupported replay contexts and incompatible save
+    parameters before the workflow is applied to a live viewer.
+    """
     issues: list[str] = []
 
     for step_nr, step in enumerate(recorder.steps, start=1):
@@ -99,17 +111,17 @@ def _substitute(name: str | None, base_layer: str) -> str | None:
     return name
 
 
-def _layer_properties(layer: "napari.layers.Layer") -> _LayerProperties:
-    return {
-        "affine": layer.affine.affine_matrix if hasattr(layer, "affine") else None,
-        "metadata": dict(layer.metadata) if hasattr(layer, "metadata") else {},
-        "scale": layer.scale if hasattr(layer, "scale") else None,
-        "axis_labels": layer.axis_labels if hasattr(layer, "axis_labels") else None,
-        "units": layer.units if hasattr(layer, "units") else None,
-    }
-
-
 def validate_output_folder(output_folder: Path | None) -> None:
+    """Ensure a destination folder exists and is writable for exported results.
+
+    Parameters
+    ----------
+    output_folder : Path | None
+        The folder where pipeline outputs will be saved. If None, no validation is performed.
+
+    This is used before pipeline steps save TIFF, CSV, or other derived output to
+    disk.
+    """
     if output_folder is None:
         return
     if not output_folder.exists() or not output_folder.is_dir():
@@ -171,35 +183,33 @@ def _resolve_output_filename(
     return resolve_output_path(filename, input_layer, destination)
 
 
-def _resolve_step(
-    step: dict[str, Any],
+def _resolve_inputs(
+    input_layer_names: dict[str, str | None],
     viewer: "napari.viewer.Viewer",
-    base_layer_name: str,
-    output_folder: Path | None = None,
-) -> _ResolvedStep:
-    function_name = str(step.get("function", "<unknown>"))
-    spec = REGISTRY[function_name]
-    input_layer_names = {
-        arg_name: _substitute(layer_name, base_layer_name)
-        for arg_name, layer_name in step["input_layers"].items()
-    }
-    primary_input_name = next(iter(input_layer_names.values()), None)
-    output_name = _substitute(step["output_layer"], base_layer_name)
-
+) -> tuple[dict[str, Any], "napari.layers.Layer | None"]:
     inputs: dict[str, Any] = {}
     primary_input_layer = None
     for index, (arg_name, layer_name) in enumerate(input_layer_names.items()):
         if layer_name is None:
             inputs[arg_name] = None
-        else:
-            layer = viewer.layers[layer_name]
-            inputs[arg_name] = layer.data
-            if index == 0:
-                primary_input_layer = layer
+            continue
 
-    params: dict[str, Any] = step["params"]
+        layer = viewer.layers[layer_name]
+        inputs[arg_name] = layer.data
+        if index == 0:
+            primary_input_layer = layer
+
+    return inputs, primary_input_layer
+
+
+def _resolve_context(
+    context_names: tuple[str, ...],
+    params: dict[str, Any],
+    primary_input_layer: "napari.layers.Layer | None",
+    base_layer_name: str,
+) -> dict[str, Any]:
     context: dict[str, Any] = {}
-    for context_name in spec.context:
+    for context_name in context_names:
         if context_name == "layername":
             context[context_name] = base_layer_name
         elif context_name == "roi_corner_points":
@@ -211,13 +221,16 @@ def _resolve_step(
                     context[context_name] = roi_points
         else:
             raise ValueError(f"Unsupported replay context: {context_name}")
+    return context
 
-    if "path" in params and "output_filename" in params:
-        raise ValueError(
-            "A pipeline step cannot contain both 'path' and "
-            "'output_filename' parameters"
-        )
-    kwargs = {**inputs, **context, **params}
+
+def _resolve_step_paths(
+    kwargs: dict[str, Any],
+    primary_input_layer: "napari.layers.Layer | None",
+    viewer: "napari.viewer.Viewer",
+    base_layer_name: str,
+    output_folder: Path | None,
+) -> None:
     if "output_filename" in kwargs:
         output_filename = kwargs.pop("output_filename")
         if not isinstance(output_filename, str):
@@ -235,6 +248,41 @@ def _resolve_step(
             raise ValueError("Legacy 'path' parameter must be a string")
         base_layer = viewer.layers[base_layer_name]
         kwargs["path"] = _resolve_savepath(path_template, base_layer, output_folder)
+
+
+def _resolve_step(
+    step: dict[str, Any],
+    viewer: "napari.viewer.Viewer",
+    base_layer_name: str,
+    output_folder: Path | None = None,
+) -> _ResolvedStep:
+    function_name = str(step.get("function", "<unknown>"))
+    spec = REGISTRY[function_name]
+    input_layer_names = {
+        arg_name: _substitute(layer_name, base_layer_name)
+        for arg_name, layer_name in step["input_layers"].items()
+    }
+    primary_input_name = next(iter(input_layer_names.values()), None)
+    output_name = _substitute(step["output_layer"], base_layer_name)
+    inputs, primary_input_layer = _resolve_inputs(input_layer_names, viewer)
+
+    params: dict[str, Any] = step["params"]
+    if "path" in params and "output_filename" in params:
+        raise ValueError(
+            "A pipeline step cannot contain both 'path' and "
+            "'output_filename' parameters"
+        )
+    context = _resolve_context(
+        spec.context, params, primary_input_layer, base_layer_name
+    )
+    kwargs = {**inputs, **context, **params}
+    _resolve_step_paths(
+        kwargs,
+        primary_input_layer,
+        viewer,
+        base_layer_name,
+        output_folder,
+    )
 
     return {
         "spec": spec,
@@ -274,7 +322,10 @@ def _apply_result(
                 "Cannot create an output layer for a step without a primary input layer"
             )
         primary_layer = viewer.layers[resolved["primary_input_name"]]
-        layer_properties = _layer_properties(primary_layer)
+        layer_properties = copy_layer_properties(
+            primary_layer,
+            include_contrast_limit=spec.output == "image",
+        )
 
         if spec.output == "labels":
             output_layer = viewer.add_labels(  # type: ignore[attr-defined]
@@ -285,7 +336,6 @@ def _apply_result(
                 result,
                 name=output_name,
                 **layer_properties,
-                contrast_limits=(0, 255),
             )
         if spec.after is not None:
             spec.after(output_layer, resolved["params"])

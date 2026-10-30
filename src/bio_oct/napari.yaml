@@ -28,98 +28,88 @@ contributions:
   # Recording Panel
   - id: bio_oct.pipeline_manager
     title: Pipeline Manager
-    python_name: bio_oct.panel:PipelineManager
+    python_name: bio_oct.pipeline_manager.panel:PipelineManager
   # Median Filter
   - id: bio_oct.median_filter
     title: Median Filter
-    python_name: bio_oct.widgets:median_filter_widget
+    python_name: bio_oct._widgets:median_filter_widget
   # Gauss Filter
   - id: bio_oct.gauss_filter
     title: Gauss Filter
-    python_name: bio_oct.widgets:gaussian_filter_widget
+    python_name: bio_oct._widgets:gaussian_filter_widget
   # Sobel Filter
   - id: bio_oct.sobel_filter
     title: Sobel Filter
-    python_name: bio_oct.widgets:sobel_filter_widget
+    python_name: bio_oct._widgets:sobel_filter_widget
   # Locate Surface Coordinates
   - id: bio_oct.locate_surface
     title: Locate Surface
-    python_name: bio_oct.widgets:LocateSurfaceWidget
+    python_name: bio_oct._widgets:LocateSurfaceWidget
   # Define ROI
   - id: bio_oct.define_roi
     title: Define ROI
-    python_name: bio_oct.widgets:DefineRoiWidget
+    python_name: bio_oct._widgets:DefineRoiWidget
   # Remove Small Objects
   - id: bio_oct.remove_small_objects
     title: Remove Small Objects
-    python_name: bio_oct.widgets:remove_small_objects_widget
+    python_name: bio_oct._widgets:remove_small_objects_widget
   # Interpolate Gaps
   - id: bio_oct.interpolate_gaps
     title: Interpolate Gaps
-    python_name: bio_oct.widgets:interpolate_gaps_widget
+    python_name: bio_oct._widgets:interpolate_gaps_widget
   # Zero Out Areas
   - id: bio_oct.zero_out_area
     title: Zero Out Area
-    python_name: bio_oct.widgets:zero_out_area_widget
+    python_name: bio_oct._widgets:zero_out_area_widget
   # Replace Reflection Lines
   - id: bio_oct.replace_reflection
     title: Replace Reflection
-    python_name: bio_oct.widgets:replace_reflection_widget
+    python_name: bio_oct._widgets:replace_reflection_widget
   # Untilt
   - id: bio_oct.untilt
     title: Untilt
-    python_name: bio_oct.widgets:untilt_widget
+    python_name: bio_oct._widgets:untilt_widget
   # Enhance Contrast
   - id: bio_oct.enhance_contrast
     title: Enhance Contrast
-    python_name: bio_oct.widgets:enhance_contrast_widget
+    python_name: bio_oct._widgets:enhance_contrast_widget
   # Thresholding
   - id: bio_oct.threshold
     title: Thresholding
-    python_name: bio_oct.widgets:ThresholdWidget
+    python_name: bio_oct._widgets:ThresholdWidget
   # TIFF export
   - id: bio_oct.export_to_tiff
     title: Export to TIFF
-    python_name: bio_oct.widgets:export_to_tiff_widget
+    python_name: bio_oct._widgets:export_to_tiff_widget
   # NIfTI export
   - id: bio_oct.export_to_nifti
     title: Export to NIfTI
-    python_name: bio_oct.widgets:export_to_nifti_widget
+    python_name: bio_oct._widgets:export_to_nifti_widget
   # Height Map creation
   - id: bio_oct.height_map
     title: Create Height Map
-    python_name: bio_oct.widgets:create_height_map_widget
+    python_name: bio_oct._widgets:create_height_map_widget
   # Biovolume Map creation
   - id: bio_oct.bv_map
     title: Create BioVol Map
-    python_name: bio_oct.widgets:create_bv_map_widget
+    python_name: bio_oct._widgets:create_bv_map_widget
   # Calculate and save metrics
   - id: bio_oct.calculate_metrics
     title: Calculate Metrics
-    python_name: bio_oct.widgets:calculate_metrics_widget
+    python_name: bio_oct._widgets:calculate_metrics_widget
 
   #*============== DEV WIDGET ITEMS
   # dev widgets
-  - id: bio_oct.preview_height_map
-    title: "dev: preview_height_map"
-    python_name: bio_oct.widgets:preview_height_map_widget
   - id: bio_oct.print_metadata
     title: "dev: print_metadata"
-    python_name: bio_oct.widgets:print_metadata
+    python_name: bio_oct._widgets:print_metadata
   - id: bio_oct.set_spacing
     title: "dev: set_spacing"
-    python_name: bio_oct.widgets:set_spacing_widget
+    python_name: bio_oct._widgets:set_spacing_widget
   - id: bio_oct.expand_coords
     title: "dev: expand_coords"
-    python_name: bio_oct.widgets:expand_coords
+    python_name: bio_oct._widgets:expand_coords
 
-  #* =============== Menu Items
-  - id: bio_oct.scale1000
-    title: Scale mm to µm
-    python_name: bio_oct.menus:scale1000
-  - id: bio_oct.plot_outliers
-    title: Plot Object Sizes
-    python_name: bio_oct.menus:plot_connected_components
 
   # register commands
   readers:
@@ -178,16 +168,9 @@ contributions:
     display_name: Calculate Metrics
 
   # dev widgets
-  - command: bio_oct.preview_height_map
-    display_name: "dev: preview_height_map"
   - command: bio_oct.print_metadata
     display_name: "dev: print_metadata"
   - command: bio_oct.set_spacing
     display_name: "dev: set_spacing"
   - command: bio_oct.expand_coords
     display_name: "dev: expand_coords"
-
-  menus:
-    napari/layers/visualize:
-      - command: bio_oct.scale1000
-      - command: bio_oct.plot_outliers

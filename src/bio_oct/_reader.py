@@ -20,7 +20,7 @@ class ThorlabsOCT:
     """Loads an .oct file from its path as an image object.
 
     Object Attributes:
-        stack (NDArray[np.float32]): The loaded image stack as a numpy array.
+        stack (NDArray[np.uint8]): The loaded image stack as a numpy array.
         spacing (np.ndarray): The pixel spacing in mm for each dimension.
         ndims (int): The number of dimensions of the image stack.
         affine (np.ndarray): The affine transformation matrix for the image stack.
@@ -118,16 +118,9 @@ class ThorlabsOCT:
             [spacing["b_scans"], spacing["axial"], spacing["lateral"]]
         ).astype(float)
 
-    def _normalize(self, stack: NDArray) -> NDArray[np.float32]:
-        stack = stack.astype(np.float32, copy=False)
-        stack -= np.min(stack)
-        stack /= np.max(stack)
-
-        return stack
-
     def _load(
         self, filepath: Path | str
-    ) -> tuple[NDArray[np.float32], np.ndarray, int, str]:
+    ) -> tuple[NDArray[np.uint8], np.ndarray, int, str]:
         with zipfile.ZipFile(filepath, "r") as z:
             items = z.namelist()
             header = next(item for item in items if "Header" in item)
@@ -178,18 +171,24 @@ class ThorlabsOCT:
         #     )
         # else:
         shape_thorlabs = (shape[0], shape[2], shape[1])
-        stack = (
-            np.frombuffer(intensity_raw, dtype=np.float32)
-            .copy()
-            .reshape(shape_thorlabs)
-            # transpose to ZYX or B-Scans, Axial, Lateral for visualization in napari "left-handedness"
-            .transpose(0, 2, 1)
-        )
+        raw = np.frombuffer(intensity_raw, dtype=np.float32)
+        lo, hi = float(raw.min()), float(raw.max())
+        normalized = raw - lo
+        normalized /= hi - lo
+        normalized *= 255
+        stack = normalized.astype(np.uint8).reshape(shape_thorlabs)
 
-        return self._normalize(stack), spacing, ndims, header_str
+        stack = np.ascontiguousarray(stack.transpose(0, 2, 1))
+        return stack, spacing, ndims, header_str
 
 
 def get_reader_fn(path: str | list[str]) -> Callable | None:
+    """Return the OCT reader callable for a supported file path.
+
+    BioOCT is only available for ``.oct`` files, and this helper
+    performs validation as recommended by the napari community
+    before passing input to the full reader.
+    """
     if isinstance(path, list):
         # reader plugins may be handed single path, or a list of paths.
         # if it is a list, it is assumed to be an image stack...
@@ -212,7 +211,11 @@ def get_reader_fn(path: str | list[str]) -> Callable | None:
 
 
 def read_oct(path: str | list[str]):
-    """Take a path or list of paths and return a list of LayerData tuples.
+    """Load one or more Thorlabs OCT files as napari layer data.
+
+    The returned objects follow napari's ``LayerData`` convention: each item is
+    (data, properties, layer_type). The metadata keeps the original spacing,
+    source directory, and other values needed for downstream processing.
 
     Readers are expected to return data as a list of tuples, where each tuple
     is (data, [add_kwargs, [layer_type]]), "add_kwargs" and "layer_type" are
@@ -243,17 +246,12 @@ def read_oct(path: str | list[str]):
     # convert to LayerData tuples
     layer_data = []
     for oct in oct_files:
-        data = (oct.stack * 255).astype(np.uint8)  # convert to uint8 for plugin
-        napari_metadata = {
+        data = oct.stack
+        layer_properties = {
             "axis_labels": ("B-Scans", "Axial (depth)", "Lateral"),
             "affine": oct.affine,
-            "units": ("µm", "µm", "µm"),
+            "units": "mm",
             "contrast_limits": (0, 255),
-            "scale": (
-                1000,
-                1000,
-                1000,
-            ),  # convert from mm to µm for napari visualization
             "metadata": {  # = layer.metadata
                 "spacing": oct.spacing.tolist(),
                 "origin": oct._origin,
@@ -265,6 +263,6 @@ def read_oct(path: str | list[str]):
         }
         layer_type = "image"
 
-        layer_data.append((data, napari_metadata, layer_type))
+        layer_data.append((data, layer_properties, layer_type))
 
     return layer_data
